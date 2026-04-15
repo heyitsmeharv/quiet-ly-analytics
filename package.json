@@ -1,0 +1,89 @@
+{
+  "name": "@quiet-ly/analytics",
+  "version": "0.1.0",
+  "description": "Lightweight, privacy-first analytics SDK. Self-hosted on AWS.",
+  "license": "MIT",
+  "author": "Adam Harvey",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heyitsmeharv/quiet-ly-npm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/heyitsmeharv/quiet-ly-npm/issues"
+  },
+  "homepage": "https://github.com/heyitsmeharv/quiet-ly-npm#readme",
+  "keywords": [
+    "analytics",
+    "privacy",
+    "serverless",
+    "aws",
+    "react",
+    "dashboard"
+  ],
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.mjs",
+      "require": "./dist/react.js"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard.d.ts",
+      "import": "./dist/dashboard.mjs",
+      "require": "./dist/dashboard.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --config vitest.config.mts",
+    "test:watch": "vitest --config vitest.config.mts",
+    "dev:preview": "vite --config vite.preview.config.mts",
+    "release:check": "npm run test && npm run build && npm pack --dry-run --cache ./.npm-cache",
+    "prepublishOnly": "npm run test && npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=17",
+    "react-dom": ">=17",
+    "recharts": ">=2"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "recharts": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^29.0.2",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "recharts": "^2.15.4",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.8",
+    "vitest": "^1.0.0"
+  }
+}

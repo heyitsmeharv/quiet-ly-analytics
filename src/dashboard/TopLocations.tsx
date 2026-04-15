@@ -1,0 +1,67 @@
+import React from 'react'
+
+interface Row {
+  location: string
+  count: number
+}
+
+interface Props {
+  rows: Row[]
+}
+
+export function TopLocations({ rows }: Props) {
+  if (rows.length === 0) {
+    return <div style={{ color: '#94a3b8', fontSize: 13 }}>No data</div>
+  }
+
+  const max = rows[0].count
+
+  return (
+    <table style={styles.table}>
+      <thead>
+        <tr>
+          <th style={styles.th}>Location</th>
+          <th style={{ ...styles.th, textAlign: 'right' }}>Visitors</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.slice(0, 10).map((row) => (
+          <tr key={row.location}>
+            <td style={styles.td}>
+              <div style={styles.barWrap}>
+                <div style={{ ...styles.bar, width: `${(row.count / max) * 100}%` }} />
+                <span style={styles.location}>{row.location || '(unknown)'}</span>
+              </div>
+            </td>
+            <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {row.count.toLocaleString()}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th: {
+    padding: '6px 8px',
+    color: '#64748b',
+    fontWeight: 600,
+    textAlign: 'left',
+    borderBottom: '1px solid #e2e8f0',
+  },
+  td: { padding: '8px', borderBottom: '1px solid #f8fafc', verticalAlign: 'middle' },
+  barWrap: { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 24 },
+  bar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    height: '100%',
+    backgroundColor: '#eef2ff',
+    borderRadius: 3,
+    zIndex: 0,
+  },
+  location: { position: 'relative', zIndex: 1, fontSize: 12 },
+}
