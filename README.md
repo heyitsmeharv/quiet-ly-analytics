@@ -43,11 +43,11 @@ analytics.reset()
 
 ## Configuration
 
-| Option | Type | Required | Description |
-|---|---|---|---|
-| `endpoint` | `string` | Yes | Lambda Function URL |
-| `appId` | `string` | Yes | Application identifier used to namespace events |
-| `debug` | `boolean` | No | Logs payloads locally instead of sending them |
+| Option     | Type      | Required | Description                                    |
+| ---------- | --------- | -------- | ---------------------------------------------- |
+| `endpoint` | `string`  | Yes      | Lambda Function URL                            |
+| `appId`    | `string`  | Yes      | Application identifier used to namespace events |
+| `debug`    | `boolean` | No       | Logs payloads locally instead of sending them  |
 
 ## React Integration
 
