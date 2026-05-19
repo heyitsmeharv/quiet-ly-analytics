@@ -41,7 +41,7 @@ describe('Queue', () => {
     q.enqueue({ payload: { type: 'test' }, endpoint: 'https://example.com' })
     await vi.advanceTimersByTimeAsync(2100)
 
-    // No throw — just silent drop after retry
+    // No throw - just silent drop after retry
     expect(mockFetch).toHaveBeenCalledTimes(2) // initial + one retry
   })
 
@@ -73,6 +73,31 @@ describe('Queue', () => {
 
     // 3 calls: initial fail for seq=1, retry success for seq=1, seq=2
     expect(mockFetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not throw when the server returns an error status', async () => {
+    vi.useFakeTimers()
+    mockFetch.mockResolvedValue({ ok: false, status: 500 })
+    const q = new Queue()
+
+    q.enqueue({ payload: { type: 'test' }, endpoint: 'https://example.com' })
+    await vi.advanceTimersByTimeAsync(2100)
+
+    expect(mockFetch).toHaveBeenCalledTimes(2) // initial + one retry
+  })
+
+  it('retries once after an HTTP error response', async () => {
+    vi.useFakeTimers()
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValue({ ok: true })
+
+    const q = new Queue()
+    q.enqueue({ payload: { seq: 1 }, endpoint: 'https://example.com' })
+
+    await vi.advanceTimersByTimeAsync(2100)
+
+    expect(mockFetch).toHaveBeenCalledTimes(2) // initial fail + retry success
   })
 
   it('uses keepalive: true on fetch calls', async () => {

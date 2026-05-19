@@ -43,6 +43,6 @@ export function clearSession(): void {
     localStorage.removeItem(VID_KEY)
     sessionStorage.removeItem(SID_KEY)
   } catch {
-    // ignore — storage may be unavailable
+    // ignore - storage may be unavailable
   }
 }

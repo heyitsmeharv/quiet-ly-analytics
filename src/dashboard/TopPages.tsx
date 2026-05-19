@@ -21,7 +21,7 @@ export function TopPages({ rows }: Props) {
       <thead>
         <tr>
           <th style={styles.th}>Page</th>
-          <th style={{ ...styles.th, textAlign: 'right' }}>Views</th>
+          <th style={{ ...styles.th, textAlign: 'right', width: 64 }}>Views</th>
         </tr>
       </thead>
       <tbody>
@@ -44,7 +44,7 @@ export function TopPages({ rows }: Props) {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' },
   th: {
     padding: '6px 8px',
     color: '#64748b',
@@ -52,16 +52,16 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'left',
     borderBottom: '1px solid #e2e8f0',
   },
-  td: { padding: '8px', borderBottom: '1px solid #f8fafc', verticalAlign: 'middle' },
-  barWrap: { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 24 },
+  td: { padding: '8px', borderBottom: '1px solid #f8fafc', verticalAlign: 'middle', overflow: 'hidden' },
+  barWrap: { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 24, overflow: 'hidden' },
   bar: {
     position: 'absolute',
     top: 0,
     left: 0,
     height: '100%',
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#e2e8f0',
     borderRadius: 3,
     zIndex: 0,
   },
-  path: { position: 'relative', zIndex: 1, fontFamily: 'monospace', fontSize: 12 },
+  path: { position: 'relative', zIndex: 1, fontFamily: 'monospace', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 }

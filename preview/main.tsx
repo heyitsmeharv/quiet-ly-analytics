@@ -7,7 +7,7 @@ import { AnalyticsDashboard } from '../src/dashboard'
 const PAGES = ['/home', '/about', '/projects', '/contact', '/blog/aws-s3', '/blog/react-hooks', '/blog/terraform-intro']
 const REFERRERS = ['https://google.com', 'https://github.com', 'https://linkedin.com', '', '']
 const TIMEZONES = [
-  'Europe/London', 'Europe/London', 'Europe/London',   // weighted — portfolio owner's region
+  'Europe/London', 'Europe/London', 'Europe/London',   // weighted - portfolio owner's region
   'America/New_York', 'America/New_York',
   'America/Los_Angeles',
   'Europe/Paris', 'Europe/Berlin',
@@ -16,7 +16,9 @@ const TIMEZONES = [
   'America/Chicago',
 ]
 const LOCALES = ['en-GB', 'en-US', 'en-US', 'fr-FR', 'de-DE', 'ja-JP', 'en-AU']
-// 50 synthetic visitor IDs — some will repeat across days to look realistic
+// ISO 3166-1 alpha-2 codes matching the timezones above (weighted accordingly)
+const COUNTRIES = ['GB', 'GB', 'GB', 'US', 'US', 'US', 'FR', 'DE', 'JP', 'AU', 'US']
+// 50 synthetic visitor IDs - some will repeat across days to look realistic
 const VISITORS = Array.from({ length: 50 }, (_, i) => `v-${String(i).padStart(4, '0')}`)
 
 function daysAgo(n: number): Date {
@@ -32,7 +34,7 @@ function pick<T>(arr: T[]): T {
 function generateMockEvents() {
   const events = []
 
-  // Page views — 8 to 28 per day for 30 days
+  // Page views - 8 to 28 per day for 30 days
   for (let i = 29; i >= 0; i--) {
     const base = daysAgo(i)
     const count = 8 + Math.floor(Math.random() * 20)
@@ -50,12 +52,13 @@ function generateMockEvents() {
         timestamp: ts.toISOString(),
         timezone: pick(TIMEZONES),
         locale: pick(LOCALES),
+        country: pick(COUNTRIES),
         params: {},
       })
     }
   }
 
-  // Custom events — sprinkled across the last 30 days
+  // Custom events - sprinkled across the last 30 days
   const customEvents = [
     { type: 'contact_submitted', path: '/contact',  params: { form: 'contact' } },
     { type: 'project_clicked',   path: '/projects', params: { project: 'aws-s3-uploader', source: 'card' } },
@@ -90,10 +93,10 @@ window.fetch = async (input, init) => {
 
   if (url.includes('lambda-url') || url.includes('mock-endpoint')) {
     if (method === 'POST') {
-      // Ingest — echo back 200
+      // Ingest - echo back 200
       return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
-    // Query — return mock events
+    // Query - return mock events
     return new Response(JSON.stringify({ events: mockEvents }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

@@ -1,20 +1,18 @@
 import React from 'react'
 
+interface StatEntry { label: string; value: number }
+
 interface Props {
   label: string
-  today: number
-  last7d: number
-  last30d: number
+  stats: ReadonlyArray<StatEntry>
 }
 
-export function MetricCard({ label, today, last7d, last30d }: Props) {
+export function MetricCard({ label, stats }: Props) {
   return (
     <div style={styles.card}>
       <div style={styles.label}>{label}</div>
       <div style={styles.row}>
-        <Stat label="Today" value={today} />
-        <Stat label="7 days" value={last7d} />
-        <Stat label="30 days" value={last30d} />
+        {stats.map((s) => <Stat key={s.label} label={s.label} value={s.value} />)}
       </div>
     </div>
   )
@@ -45,7 +43,7 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
-  row: { display: 'flex', gap: 24 },
+  row: { display: 'flex', gap: 24, flexWrap: 'wrap' },
   stat: { display: 'flex', flexDirection: 'column', gap: 2 },
   statValue: { fontSize: 28, fontWeight: 700, color: '#0f172a', lineHeight: '1' },
   statLabel: { fontSize: 12, color: '#94a3b8' },

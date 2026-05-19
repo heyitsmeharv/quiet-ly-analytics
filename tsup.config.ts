@@ -10,6 +10,6 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'recharts'],
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'recharts', 'react-simple-maps'],
   treeshake: true,
 })

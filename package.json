@@ -1,6 +1,6 @@
 {
   "name": "@quiet-ly/analytics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight, privacy-first analytics SDK. Self-hosted on AWS.",
   "license": "MIT",
   "author": "Adam Harvey",
@@ -59,6 +59,7 @@
   "peerDependencies": {
     "react": ">=17",
     "react-dom": ">=17",
+    "react-simple-maps": ">=3",
     "recharts": ">=2"
   },
   "peerDependenciesMeta": {
@@ -70,7 +71,15 @@
     },
     "recharts": {
       "optional": true
+    },
+    "react-simple-maps": {
+      "optional": true
     }
+  },
+  "overrides": {
+    "d3-color": "^3.1.0",
+    "esbuild": "^0.25.0",
+    "postcss": "^8.5.10"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
@@ -80,10 +89,12 @@
     "jsdom": "^29.0.2",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
+    "react-simple-maps": "^3.0.0",
     "recharts": "^2.15.4",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
-    "vite": "^8.0.8",
-    "vitest": "^1.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4",
+    "world-atlas": "^2.0.2"
   }
 }

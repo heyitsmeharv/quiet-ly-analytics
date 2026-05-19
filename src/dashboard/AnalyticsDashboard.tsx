@@ -1,15 +1,51 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MetricCard } from './MetricCard'
 import { PageViewsChart } from './PageViewsChart'
 import { TopPages } from './TopPages'
 import { TopReferrers } from './TopReferrers'
 import { TopLocations } from './TopLocations'
+import { WorldMap } from './WorldMap'
+
+const ANIMATIONS = `
+  @keyframes qly-shimmer {
+    0%   { background-position: -800px 0; }
+    100% { background-position:  800px 0; }
+  }
+  @keyframes qly-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  .qly-btn {
+    transition: filter 0.12s ease, transform 0.08s ease;
+  }
+  .qly-btn:hover { filter: brightness(1.12); }
+  .qly-btn:active { filter: brightness(0.88); transform: scale(0.96); }
+`
+
+const skShimmer: React.CSSProperties = {
+  background: 'linear-gradient(90deg, #e2e8f0 25%, #cbd5e1 50%, #e2e8f0 75%)',
+  backgroundSize: '800px 100%',
+  animation: 'qly-shimmer 1.4s ease-in-out infinite',
+  borderRadius: 6,
+}
+
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1024,
+  )
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', onResize, { passive: true } as AddEventListenerOptions)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return width
+}
 
 export interface AnalyticsDashboardProps {
   /** Lambda Function URL */
   endpoint: string
   appId: string
-  /** Initial date range in days — maps to the nearest preset. Default 30. */
+  /** Initial date range in days - maps to the nearest preset. Default 30. */
   dateRange?: number
 }
 
@@ -47,7 +83,10 @@ interface QueryResponse {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function toDateStr(date: Date): string {
-  return date.toISOString().slice(0, 10)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -77,7 +116,7 @@ function presetToRange(preset: Preset): { from: string; to: string } {
     case '1d':  return { from: today, to: today }
     case '7d':  return { from: toDateStr(daysAgo(6)),   to: today }
     case '30d': return { from: toDateStr(daysAgo(29)),  to: today }
-    case '1y':  return { from: toDateStr(daysAgo(364)), to: today }
+    case '1y':  return { from: toDateStr(daysAgo(365)), to: today }
     default:    return { from: toDateStr(daysAgo(29)),  to: today }
   }
 }
@@ -140,12 +179,14 @@ function getLocationLabel(
 // ─── component ───────────────────────────────────────────────────────────────
 
 export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: AnalyticsDashboardProps) {
+  const isMobile = useWindowWidth() < 640
   const initialPreset = dateRangeToPreset(dateRange)
   const initialRange  = presetToRange(initialPreset)
 
   const [events,        setEvents]        = useState<DashboardEvent[]>([])
   const [expandedRow,   setExpandedRow]   = useState<string | null>(null)
   const [loading,       setLoading]       = useState(true)
+  const [hasLoaded,     setHasLoaded]     = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [visitorFilter, setVisitorFilter] = useState<string | null>(null)
 
@@ -153,7 +194,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
   const [from,         setFrom]         = useState(initialRange.from)
   const [to,           setTo]           = useState(initialRange.to)
 
-  // Staging state for the custom picker — only committed on Apply
+  // Staging state for the custom picker - only committed on Apply
   const [customFrom, setCustomFrom] = useState(initialRange.from)
   const [customTo,   setCustomTo]   = useState(initialRange.to)
   const customRangeError = useMemo(
@@ -163,7 +204,13 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
 
   // ─── fetch ─────────────────────────────────────────────────────────────────
 
+  const abortRef = useRef<AbortController | null>(null)
+
   const fetchData = useCallback(async (fromDate: string, toDate: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     const rangeError = getDateRangeError(fromDate, toDate)
     if (rangeError) {
       setError(rangeError)
@@ -178,15 +225,17 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
       url.searchParams.set('from', fromDate)
       url.searchParams.set('to', toDate)
 
-      const res = await fetch(url.toString())
+      const res = await fetch(url.toString(), { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: QueryResponse = await res.json()
       setEvents(Array.isArray(data.events) ? data.events : [])
+      setHasLoaded(true)
       setVisitorFilter(null)
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return
       setError(e instanceof Error ? e.message : 'Failed to load analytics')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [endpoint, appId])
 
@@ -231,18 +280,35 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
     [activeEvents],
   )
 
-  const todayStr       = toDateStr(new Date())
-  const sevenDaysAgoTs = daysAgo(7)
+  const pvStats = useMemo(() => {
+    const today  = toDateStr(new Date())
+    const total  = pageViews.length
+    const todayN = pageViews.filter((e) => e.timestamp.slice(0, 10) === today).length
+    const last7  = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(6)).length
+    const last30 = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(29)).length
+    const last90 = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(89)).length
+    if (activePreset === '1d')  return [{ label: 'Today',   value: total  }]
+    if (activePreset === '7d')  return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: total  }]
+    if (activePreset === '30d') return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: last7  }, { label: '30 days', value: total  }]
+    if (activePreset === '1y')  return [{ label: '30 days', value: last30 }, { label: '90 days', value: last90 }, { label: '1 year',  value: total  }]
+    return [{ label: 'Total', value: total }]
+  }, [pageViews, activePreset])
 
-  const pvToday = pageViews.filter((e) => e.timestamp.slice(0, 10) === todayStr).length
-  const pv7d    = pageViews.filter((e) => new Date(e.timestamp) >= sevenDaysAgoTs).length
-  const pv30d   = pageViews.length
+  const uvStats = useMemo(() => {
+    const today  = toDateStr(new Date())
+    const total  = new Set(pageViews.map((e) => e.visitorId)).size
+    const todayN = new Set(pageViews.filter((e) => e.timestamp.slice(0, 10) === today).map((e) => e.visitorId)).size
+    const last7  = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(6)).map((e) => e.visitorId)).size
+    const last30 = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(29)).map((e) => e.visitorId)).size
+    const last90 = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(89)).map((e) => e.visitorId)).size
+    if (activePreset === '1d')  return [{ label: 'Today',   value: total  }]
+    if (activePreset === '7d')  return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: total  }]
+    if (activePreset === '30d') return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: last7  }, { label: '30 days', value: total  }]
+    if (activePreset === '1y')  return [{ label: '30 days', value: last30 }, { label: '90 days', value: last90 }, { label: '1 year',  value: total  }]
+    return [{ label: 'Total', value: total }]
+  }, [pageViews, activePreset])
 
-  const uvToday = new Set(pageViews.filter((e) => e.timestamp.slice(0, 10) === todayStr).map((e) => e.visitorId)).size
-  const uv7d    = new Set(pageViews.filter((e) => new Date(e.timestamp) >= sevenDaysAgoTs).map((e) => e.visitorId)).size
-  const uv30d   = new Set(pageViews.map((e) => e.visitorId)).size
-
-  // Chart — day buckets for the active range
+  // Chart - day buckets for the active range
   const chartData = useMemo(() => {
     const pvByDay: Record<string, number> = {}
     daysBetween(from, to).forEach((d) => { pvByDay[d] = 0 })
@@ -253,7 +319,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
     return Object.entries(pvByDay).map(([date, views]) => ({ date, views }))
   }, [pageViews, from, to])
 
-  // Chart section label
+  // Chart section label + MetricCard range stat label
   const rangeLabel = useMemo(() => {
     if (activePreset === '1d')     return `Page Views · Today`
     if (activePreset === 'custom') return `Page Views · ${formatDateShort(from)} – ${formatDateShort(to)}`
@@ -283,6 +349,15 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
     return Object.entries(counts).map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count)
   }, [pageViews])
 
+  const countryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    pageViews.forEach((e) => {
+      const country = e.country?.trim()
+      if (country) counts[country] = (counts[country] ?? 0) + 1
+    })
+    return counts
+  }, [pageViews])
+
   const recentEvents = useMemo(
     () => [...activeEvents].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20),
     [activeEvents],
@@ -290,32 +365,107 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
 
   // ─── render ────────────────────────────────────────────────────────────────
 
-  if (loading) return <div style={styles.state}>Loading…</div>
+  const sectionPad = isMobile ? 12 : 20
+  const today      = toDateStr(new Date())
+  const hdrPad     = isMobile ? '14px 16px' : '20px 24px'
+  const bodyPad    = isMobile ? 16 : 24
 
-  if (error) {
+  const sharedHeader = (
+    <div style={{ ...styles.header, padding: hdrPad }}>
+      <div style={styles.titleGroup}>
+        <span style={styles.wordmark}>quiet-ly</span>
+        <h2 style={styles.appTitle}>{appId}</h2>
+      </div>
+    </div>
+  )
+
+  if (loading && !hasLoaded) {
     return (
-      <div style={styles.state}>
-        <span style={{ color: '#ef4444' }}>Error: {error}</span>
-        <button onClick={() => void fetchData(from, to)} style={styles.retryBtn}>Retry</button>
+      <div style={styles.root}>
+        <style>{ANIMATIONS}</style>
+        {sharedHeader}
+        <div style={{ padding: bodyPad }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+            {[64, 72, 80, 70, 68].map((w, i) => (
+              <div key={i} style={{ ...skShimmer, width: w, height: 32 }} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' as const }}>
+            {[1, 2].map((i) => (
+              <div key={i} style={{ ...styles.card, flex: 1, minWidth: 200, padding: sectionPad }}>
+                <div style={{ ...skShimmer, width: '55%', height: 11, marginBottom: 16 }} />
+                <div style={{ display: 'flex', gap: 24 }}>
+                  {[1, 2, 3].map((j) => (
+                    <div key={j}>
+                      <div style={{ ...skShimmer, width: 38, height: 28, marginBottom: 6 }} />
+                      <div style={{ ...skShimmer, width: 46, height: 10 }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          {[220, 190].map((h, i) => (
+            <div key={i} style={{ ...styles.card, padding: sectionPad, marginBottom: 16 }}>
+              <div style={{ ...skShimmer, width: '40%', height: 13, marginBottom: 16 }} />
+              <div style={{ ...skShimmer, height: h, borderRadius: 8 }} />
+            </div>
+          ))}
+          <div style={styles.tables}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} style={{ ...styles.card, padding: sectionPad }}>
+                <div style={{ ...skShimmer, width: '50%', height: 13, marginBottom: 16 }} />
+                {Array.from({ length: 5 }, (_, j) => (
+                  <div key={j} style={{ ...skShimmer, height: 22, marginBottom: 10 }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
 
-  const today = toDateStr(new Date())
+  if (error) {
+    return (
+      <div style={styles.root}>
+        <style>{ANIMATIONS}</style>
+        {sharedHeader}
+        <div style={{ padding: bodyPad }}>
+          <div style={{ ...styles.card, padding: 32, textAlign: 'center' as const }}>
+            <p style={{ color: '#ef4444', fontSize: 14, margin: '0 0 12px' }}>Error: {error}</p>
+            <button onClick={() => void fetchData(from, to)} style={styles.retryBtn} className="qly-btn">Retry</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={styles.root}>
+      <style>{ANIMATIONS}</style>
 
-      {/* Header */}
-      <div style={styles.header}>
+      {/* Branded header */}
+      <div style={{ ...styles.header, padding: hdrPad }}>
         <div style={styles.titleGroup}>
           <span style={styles.wordmark}>quiet-ly</span>
           <h2 style={styles.appTitle}>{appId}</h2>
         </div>
-        <button onClick={() => void fetchData(from, to)} style={styles.refreshBtn} aria-label="Refresh dashboard data">↻ Refresh</button>
+        <button
+          onClick={() => void fetchData(from, to)}
+          style={styles.refreshBtn}
+          className="qly-btn"
+          aria-label="Refresh dashboard data"
+        >
+          <span style={loading ? { display: 'inline-block', animation: 'qly-spin 0.7s linear infinite' } : {}}>↻</span>
+          {' '}Refresh
+        </button>
       </div>
 
-      {/* Date range bar */}
+      {/* Body */}
+      <div style={{ padding: bodyPad }}>
+
+        {/* Date range bar */}
       <div style={styles.rangeBar}>
         <div style={styles.presetGroup}>
           {PRESETS.map((p) => (
@@ -323,6 +473,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
               key={p.key}
               onClick={() => handlePresetClick(p.key)}
               style={activePreset === p.key ? styles.presetActive : styles.presetBtn}
+              className="qly-btn"
               aria-pressed={activePreset === p.key}
             >
               {p.label}
@@ -354,6 +505,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
               onClick={handleApplyCustom}
               disabled={customRangeError !== null}
               style={styles.applyBtn}
+              className="qly-btn"
               aria-label="Apply custom date range"
             >
               Apply
@@ -371,7 +523,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
           <span>
             Filtered to visitor <code style={styles.filterCode}>{visitorFilter.slice(0, 8)}…</code>
           </span>
-          <button onClick={() => setVisitorFilter(null)} style={styles.clearFilterBtn}>
+          <button onClick={() => setVisitorFilter(null)} style={styles.clearFilterBtn} className="qly-btn">
             ✕ clear filter
           </button>
         </div>
@@ -379,101 +531,116 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
 
       {/* Metric cards */}
       <div style={styles.cards}>
-        <MetricCard label="Page Views"      today={pvToday} last7d={pv7d} last30d={pv30d} />
-        <MetricCard label="Unique Visitors" today={uvToday} last7d={uv7d} last30d={uv30d} />
+        <MetricCard label="Page Views"      stats={pvStats} />
+        <MetricCard label="Unique Visitors" stats={uvStats} />
       </div>
 
       {/* Chart */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, padding: sectionPad }}>
         <h3 style={styles.sectionTitle}>{rangeLabel}</h3>
         <PageViewsChart data={chartData} />
       </div>
 
+      {/* World map */}
+      <div style={{ ...styles.section, padding: sectionPad }}>
+        <h3 style={styles.sectionTitle}>Traffic by Country</h3>
+        <WorldMap countryCounts={countryCounts} />
+      </div>
+
       {/* Tables */}
       <div style={styles.tables}>
-        <div style={styles.tableSection}>
+        <div style={{ ...styles.tableSection, padding: sectionPad }}>
           <h3 style={styles.sectionTitle}>Top Pages</h3>
           <TopPages rows={topPages} />
         </div>
-        <div style={styles.tableSection}>
+        <div style={{ ...styles.tableSection, padding: sectionPad }}>
           <h3 style={styles.sectionTitle}>Top Referrers</h3>
           <TopReferrers rows={topReferrers} />
         </div>
-        <div style={styles.tableSection}>
+        <div style={{ ...styles.tableSection, padding: sectionPad }}>
           <h3 style={styles.sectionTitle}>Top Locations</h3>
           <TopLocations rows={topLocations} />
         </div>
       </div>
 
       {/* Recent events */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, padding: sectionPad }}>
         <h3 style={styles.sectionTitle}>Recent Events</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr>
-              {['Time', 'Type', 'Path', 'Location', 'Visitor'].map((h) => (
-                <th key={h} style={styles.recentTh}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {recentEvents.map((e) => {
-              const rowKey      = `${e.visitorId}-${e.sessionId}-${e.timestamp}`
-              const paramEntries = Object.entries(e.params ?? {})
-              const isExpanded  = expandedRow === rowKey
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: isMobile ? 480 : undefined }}>
+            <thead>
+              <tr>
+                <th style={styles.recentTh}>Time</th>
+                <th style={styles.recentTh}>Type</th>
+                <th style={styles.recentTh}>Path</th>
+                {!isMobile && <th style={styles.recentTh}>Location</th>}
+                <th style={styles.recentTh}>Visitor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentEvents.map((e) => {
+                const rowKey       = `${e.visitorId}-${e.sessionId}-${e.timestamp}`
+                const paramEntries = Object.entries(e.params ?? {})
+                const isExpanded   = expandedRow === rowKey
 
-              return (
-                <React.Fragment key={rowKey}>
-                  <tr
-                    onClick={paramEntries.length > 0 ? () => setExpandedRow(isExpanded ? null : rowKey) : undefined}
-                    style={paramEntries.length > 0 ? { cursor: 'pointer' } : {}}
-                  >
-                    <td style={styles.recentTd}>{new Date(e.timestamp).toLocaleString()}</td>
-                    <td style={styles.recentTd}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <code style={styles.eventType}>{e.type}</code>
-                        {paramEntries.length > 0 && (
-                          <span style={styles.paramsToggle} aria-hidden="true">
-                            {isExpanded ? '▾' : '▸'}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ ...styles.recentTd, fontFamily: 'monospace', fontSize: 11 }}>{e.path}</td>
-                    <td style={{ ...styles.recentTd, color: '#64748b', fontSize: 11 }}>
-                      {getLocationLabel(e, '—')}
-                    </td>
-                    <td style={styles.recentTd}>
-                      <button
-                        onClick={(ev) => { ev.stopPropagation(); setVisitorFilter(visitorFilter === e.visitorId ? null : e.visitorId) }}
-                        style={{ ...styles.visitorBtn, ...(visitorFilter === e.visitorId ? styles.visitorBtnActive : {}) }}
-                        aria-label={visitorFilter === e.visitorId ? 'Clear visitor filter' : `Filter to visitor ${e.visitorId.slice(0, 8)}`}
-                        title={visitorFilter === e.visitorId ? 'Clear filter' : 'Filter to this visitor'}
-                      >
-                        {e.visitorId.slice(0, 8)}…
-                      </button>
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr>
-                      <td colSpan={5} style={styles.paramsRow}>
-                        {paramEntries.map(([k, v]) => (
-                          <span key={k} style={styles.paramPair}>
-                            <span style={styles.paramKey}>{k}</span>
-                            <span style={styles.paramVal}>
-                              {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                return (
+                  <React.Fragment key={rowKey}>
+                    <tr
+                      onClick={paramEntries.length > 0 ? () => setExpandedRow(isExpanded ? null : rowKey) : undefined}
+                      style={paramEntries.length > 0 ? { cursor: 'pointer' } : {}}
+                    >
+                      <td style={styles.recentTd}>{new Date(e.timestamp).toLocaleString()}</td>
+                      <td style={styles.recentTd}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <code style={styles.eventType}>{e.type}</code>
+                          {paramEntries.length > 0 && (
+                            <span style={styles.paramsToggle} aria-hidden="true">
+                              {isExpanded ? '▾' : '▸'}
                             </span>
-                          </span>
-                        ))}
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ ...styles.recentTd, fontFamily: 'monospace', fontSize: 11 }}>{e.path}</td>
+                      {!isMobile && (
+                        <td style={{ ...styles.recentTd, color: '#64748b', fontSize: 11 }}>
+                          {getLocationLabel(e, '-')}
+                        </td>
+                      )}
+                      <td style={styles.recentTd}>
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); setVisitorFilter(visitorFilter === e.visitorId ? null : e.visitorId) }}
+                          style={{ ...styles.visitorBtn, ...(visitorFilter === e.visitorId ? styles.visitorBtnActive : {}) }}
+                          className="qly-btn"
+                          aria-label={visitorFilter === e.visitorId ? 'Clear visitor filter' : `Filter to visitor ${e.visitorId.slice(0, 8)}`}
+                          title={visitorFilter === e.visitorId ? 'Clear filter' : 'Filter to this visitor'}
+                        >
+                          {e.visitorId.slice(0, 8)}…
+                        </button>
                       </td>
                     </tr>
-                  )}
-                </React.Fragment>
-              )
-            })}
-          </tbody>
-        </table>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={isMobile ? 4 : 5} style={styles.paramsRow}>
+                          {paramEntries.map(([k, v]) => (
+                            <span key={k} style={styles.paramPair}>
+                              <span style={styles.paramKey}>{k}</span>
+                              <span style={styles.paramVal}>
+                                {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                              </span>
+                            </span>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      </div>{/* /body */}
     </div>
   )
 }
@@ -486,13 +653,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     maxWidth: 900,
     margin: '0 auto',
-    padding: 24,
   },
   header: {
     display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   titleGroup: { display: 'flex', flexDirection: 'column', gap: 2 },
   wordmark: {
@@ -500,9 +667,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     letterSpacing: '0.12em',
     textTransform: 'uppercase' as const,
-    color: '#6366f1',
+    color: '#0f172a',
   },
-  appTitle: { margin: 0, fontSize: 26, fontWeight: 700, color: '#0f172a', lineHeight: 1.1 },
+  appTitle: { margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a', lineHeight: 1.1 },
   refreshBtn: {
     background: 'none',
     border: '1px solid #e2e8f0',
@@ -522,7 +689,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     marginBottom: 20,
   },
-  presetGroup: { display: 'flex', gap: 4 },
+  presetGroup: { display: 'flex', gap: 4, flexWrap: 'wrap' },
   presetBtn: {
     background: 'none',
     border: '1px solid #e2e8f0',
@@ -534,8 +701,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   presetActive: {
-    background: '#6366f1',
-    border: '1px solid #6366f1',
+    background: '#0f172a',
+    border: '1px solid #0f172a',
     borderRadius: 6,
     padding: '5px 12px',
     cursor: 'pointer',
@@ -546,6 +713,7 @@ const styles: Record<string, React.CSSProperties> = {
   customPicker: {
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
     marginLeft: 4,
   },
@@ -560,7 +728,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dateSep: { fontSize: 13, color: '#94a3b8' },
   applyBtn: {
-    background: '#6366f1',
+    background: '#0f172a',
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -579,34 +747,46 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: '#eef2ff',
-    border: '1px solid #c7d2fe',
+    flexWrap: 'wrap',
+    gap: 8,
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
     borderRadius: 6,
     padding: '8px 12px',
     marginBottom: 16,
     fontSize: 13,
-    color: '#4338ca',
+    color: '#1e293b',
   },
   filterCode: {
     fontFamily: 'monospace',
     fontSize: 12,
-    background: '#e0e7ff',
+    background: '#e2e8f0',
+    color: '#0f172a',
     padding: '1px 5px',
     borderRadius: 3,
   },
   clearFilterBtn: {
     background: 'none',
-    border: '1px solid #a5b4fc',
+    border: '1px solid #e2e8f0',
     borderRadius: 5,
     padding: '3px 8px',
     cursor: 'pointer',
     fontSize: 12,
-    color: '#4338ca',
+    color: '#64748b',
   },
 
   // Cards / sections
+  card: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 8,
+  },
   cards:   { display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' },
-  section: { border: '1px solid #e2e8f0', borderRadius: 8, padding: 20, marginBottom: 16 },
+  section: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 16,
+  },
   sectionTitle: { margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#374151' },
   tables: {
     display: 'grid',
@@ -614,20 +794,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 16,
     marginBottom: 16,
   },
-  tableSection: { border: '1px solid #e2e8f0', borderRadius: 8, padding: 20 },
+  tableSection: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 8,
+    padding: 20,
+  },
 
   // States
-  state: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
-    padding: 48,
-    color: '#64748b',
-    fontSize: 14,
-  },
   retryBtn: {
-    background: '#6366f1',
+    background: '#0f172a',
     color: 'white',
     border: 'none',
     borderRadius: 6,
@@ -657,9 +832,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
   },
   visitorBtnActive: {
-    background: '#eef2ff',
-    border: '1px solid #a5b4fc',
-    color: '#4338ca',
+    background: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+    color: '#1e293b',
   },
 
   // Params expansion

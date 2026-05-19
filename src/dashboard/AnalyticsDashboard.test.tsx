@@ -107,6 +107,29 @@ describe('AnalyticsDashboard', () => {
     fireEvent.click(screen.getByText('✕ clear filter'))
     expect(screen.queryByText(/Filtered to visitor/)).toBeNull()
   })
+  it('shows an error message with a retry button when the fetch fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+    ;(globalThis as any).fetch = mockFetch
+
+    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
+
+    await waitFor(() => screen.getByText(/HTTP 500/))
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy()
+  })
+
+  it('does not produce a validation error when switching to the 1 year preset', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+    ;(globalThis as any).fetch = mockFetch
+
+    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" />)
+    await waitFor(() => screen.getByText('1 Year'))
+
+    fireEvent.click(screen.getByText('1 Year'))
+
+    expect(screen.queryByText('Date range must be 366 days or fewer.')).toBeNull()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+  })
+
   it('blocks custom queries longer than 366 days before making a request', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
     ;(globalThis as any).fetch = mockFetch

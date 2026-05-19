@@ -88,10 +88,22 @@ The dashboard includes:
 - page view and unique visitor summary cards
 - page view trend chart
 - top pages, referrers, and locations
+- world heatmap by country (falls back gracefully when country data is absent)
 - recent events with visitor filtering
-- preset and custom date ranges
+- preset and custom date ranges (Today, 1 Week, 1 Month, 1 Year, Custom)
 
 The dashboard supports visitor-level filtering from the recent events table. It relies only on the top-level `{ events: [...] }` response shape, ignores additional backend fields such as DynamoDB keys, and validates date ranges client-side before sending queries.
+
+### Peer dependencies
+
+Both `recharts` and `react-simple-maps` are optional peer dependencies used by the dashboard entry point.
+
+- `recharts` - required by `PageViewsChart`. Without it the trend chart will not render.
+- `react-simple-maps` - required by `WorldMap`. Without it the country map will not render. The dashboard falls back gracefully when country data is absent, but the package itself must be installed for the component to load.
+
+```bash
+npm install recharts react-simple-maps
+```
 
 ### Custom Dashboard Composition
 
@@ -104,6 +116,7 @@ import {
   TopPages,
   TopReferrers,
   TopLocations,
+  WorldMap,
 } from '@quiet-ly/analytics/dashboard'
 ```
 

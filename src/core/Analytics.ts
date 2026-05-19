@@ -4,7 +4,7 @@ import { Queue } from './Queue'
 export interface AnalyticsConfig {
   /** Lambda Function URL */
   endpoint: string
-  /** Namespaces events — use if you share infrastructure across projects */
+  /** Namespaces events - use if you share infrastructure across projects */
   appId: string
   /** Log events to the console instead of sending them */
   debug?: boolean
@@ -30,7 +30,7 @@ export type TrackEvent = string
 
 export class Analytics {
   private readonly config: AnalyticsConfig
-  private readonly queue: Queue
+  private readonly queue: Queue<EventPayload>
   private userId?: string
 
   constructor(config: AnalyticsConfig) {
@@ -56,7 +56,7 @@ export class Analytics {
     this.userId = userId
   }
 
-  /** Clears the visitor ID and session — use on sign-out. */
+  /** Clears the visitor ID and session - use on sign-out. */
   reset(): void {
     this.userId = undefined
     clearSession()
