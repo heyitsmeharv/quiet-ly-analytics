@@ -23,7 +23,7 @@ table is the [terraform-aws-quietly](https://github.com/heyitsmeharv/terraform-a
 npm install @quiet-ly/analytics
 ```
 
-If you use the React or dashboard entry points, make sure your application provides compatible `react` and `react-dom` versions.
+If you use the React or dashboard entry points, make sure your application provides compatible `react` and `react-dom` versions. `recharts` and `react-simple-maps` are bundled as dependencies and install automatically.
 
 ## Quick Start
 
@@ -93,17 +93,6 @@ The dashboard includes:
 - preset and custom date ranges (Today, 1 Week, 1 Month, 1 Year, Custom)
 
 The dashboard supports visitor-level filtering from the recent events table. It relies only on the top-level `{ events: [...] }` response shape, ignores additional backend fields such as DynamoDB keys, and validates date ranges client-side before sending queries.
-
-### Peer dependencies
-
-Both `recharts` and `react-simple-maps` are optional peer dependencies used by the dashboard entry point.
-
-- `recharts` - required by `PageViewsChart`. Without it the trend chart will not render.
-- `react-simple-maps` - required by `WorldMap`. Without it the country map will not render. The dashboard falls back gracefully when country data is absent, but the package itself must be installed for the component to load.
-
-```bash
-npm install recharts react-simple-maps
-```
 
 ### Custom Dashboard Composition
 

@@ -34,10 +34,12 @@ function pick<T>(arr: T[]): T {
 function generateMockEvents() {
   const events = []
 
-  // Page views - 8 to 28 per day for 30 days
-  for (let i = 29; i >= 0; i--) {
-    const base = daysAgo(i)
-    const count = 8 + Math.floor(Math.random() * 20)
+  // Page views across 366 days so all presets have realistic data.
+  // Traffic grows gradually over the year to give the chart an interesting shape.
+  for (let i = 365; i >= 0; i--) {
+    const base  = daysAgo(i)
+    const growth = 1 + (365 - i) / 365  // ramps from 1× to 2× over the year
+    const count = Math.round((5 + Math.floor(Math.random() * 15)) * growth)
 
     for (let j = 0; j < count; j++) {
       const ts = new Date(base)
@@ -58,14 +60,14 @@ function generateMockEvents() {
     }
   }
 
-  // Custom events - sprinkled across the last 30 days
+  // Custom events - sprinkled across the last 366 days
   const customEvents = [
     { type: 'contact_submitted', path: '/contact',  params: { form: 'contact' } },
     { type: 'project_clicked',   path: '/projects', params: { project: 'aws-s3-uploader', source: 'card' } },
     { type: 'cv_downloaded',     path: '/about',    params: { format: 'pdf' } },
     { type: 'theme_changed',     path: '/home',     params: { theme: 'dark' } },
   ]
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 120; i++) {
     const custom = pick(customEvents)
     events.push({
       appId: 'my-portfolio',
@@ -73,7 +75,7 @@ function generateMockEvents() {
       referrer: '',
       sessionId: `s-${Math.random().toString(36).slice(2, 10)}`,
       visitorId: pick(VISITORS),
-      timestamp: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
+      timestamp: new Date(Date.now() - Math.random() * 366 * 24 * 60 * 60 * 1000).toISOString(),
       timezone: pick(TIMEZONES),
       locale: pick(LOCALES),
     })
@@ -93,10 +95,20 @@ window.fetch = async (input, init) => {
 
   if (url.includes('lambda-url') || url.includes('mock-endpoint')) {
     if (method === 'POST') {
-      // Ingest - echo back 200
       return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
-    // Query - return mock events
+    // Simulate network latency proportional to the queried date range
+    const params = new URL(url).searchParams
+    const from = params.get('from') ?? ''
+    const to   = params.get('to')   ?? ''
+    const days = from && to
+      ? Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000)
+      : 30
+    const delay = days >= 300 ? 2000 : days >= 28 ? 1000 : 400
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, delay)
+      init?.signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')) })
+    })
     return new Response(JSON.stringify({ events: mockEvents }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

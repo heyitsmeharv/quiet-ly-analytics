@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 interface StatEntry { label: string; value: number }
 
@@ -18,10 +18,39 @@ export function MetricCard({ label, stats }: Props) {
   )
 }
 
+function useAnimatedNumber(target: number, duration = 900): number {
+  const [displayed, setDisplayed] = useState(0)
+  const fromRef  = useRef(0)
+  const frameRef = useRef<number>(0)
+
+  useEffect(() => {
+    const from = fromRef.current
+    const start = performance.now()
+    cancelAnimationFrame(frameRef.current)
+
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3) // ease-out cubic
+      setDisplayed(Math.round(from + (target - from) * eased))
+      if (t < 1) {
+        frameRef.current = requestAnimationFrame(tick)
+      } else {
+        fromRef.current = target
+      }
+    }
+
+    frameRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frameRef.current)
+  }, [target, duration])
+
+  return displayed
+}
+
 function Stat({ label, value }: { label: string; value: number }) {
+  const displayed = useAnimatedNumber(value)
   return (
     <div style={styles.stat}>
-      <div style={styles.statValue}>{value.toLocaleString()}</div>
+      <div style={styles.statValue}>{displayed.toLocaleString()}</div>
       <div style={styles.statLabel}>{label}</div>
     </div>
   )

@@ -462,8 +462,13 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
         </button>
       </div>
 
+      {/* Loading bar - visible on subsequent fetches while stale content is shown */}
+      {loading && (
+        <div style={{ ...skShimmer, height: 3, borderRadius: 0, marginBottom: 0 }} />
+      )}
+
       {/* Body */}
-      <div style={{ padding: bodyPad }}>
+      <div style={{ padding: bodyPad, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : undefined }}>
 
         {/* Date range bar */}
       <div style={styles.rangeBar}>
@@ -538,7 +543,7 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
       {/* Chart */}
       <div style={{ ...styles.section, padding: sectionPad }}>
         <h3 style={styles.sectionTitle}>{rangeLabel}</h3>
-        <PageViewsChart data={chartData} />
+        <PageViewsChart data={chartData} rangeKey={`${from}-${to}`} />
       </div>
 
       {/* World map */}

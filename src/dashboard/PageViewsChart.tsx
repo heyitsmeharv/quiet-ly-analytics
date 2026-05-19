@@ -16,6 +16,7 @@ interface DataPoint {
 
 interface Props {
   data: DataPoint[]
+  rangeKey: string
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -32,7 +33,7 @@ function aggregateWeekly(data: DataPoint[]): DataPoint[] {
   return weekly
 }
 
-export function PageViewsChart({ data }: Props) {
+export function PageViewsChart({ data, rangeKey }: Props) {
   if (data.length < 2) {
     return <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>Not enough data</div>
   }
@@ -43,9 +44,14 @@ export function PageViewsChart({ data }: Props) {
     ? (v: string) => { const p = v.split('-'); return `${MONTHS[+p[1] - 1]} ${+p[2]}` }
     : (v: string) => v.slice(5)
 
+  const showDots = displayData.length <= 14
+
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <AreaChart data={displayData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+    <ResponsiveContainer key={rangeKey} width="100%" height={200}>
+      <AreaChart
+        data={displayData}
+        margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+      >
         <defs>
           <linearGradient id="pvGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="#0f172a" stopOpacity={0.15} />
@@ -92,8 +98,11 @@ export function PageViewsChart({ data }: Props) {
           stroke="#0f172a"
           strokeWidth={2}
           fill="url(#pvGradient)"
-          dot={false}
+          dot={showDots ? { r: 3, fill: '#0f172a', strokeWidth: 0 } : false}
           activeDot={{ r: 4, fill: '#0f172a', stroke: '#fff', strokeWidth: 2 }}
+          animationBegin={0}
+          animationDuration={showDots ? 1000 : 700}
+          animationEasing={showDots ? 'ease-in-out' : 'ease-out'}
         />
       </AreaChart>
     </ResponsiveContainer>
