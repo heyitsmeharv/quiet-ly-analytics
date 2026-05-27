@@ -88,11 +88,12 @@ The dashboard includes:
 - page view and unique visitor summary cards
 - page view trend chart
 - top pages, referrers, and locations
+- device and browser breakdowns
 - world heatmap by country (falls back gracefully when country data is absent)
-- recent events with visitor filtering
+- recent events table with click-to-filter by visitor
 - preset and custom date ranges (Today, 1 Week, 1 Month, 1 Year, Custom)
 
-The dashboard supports visitor-level filtering from the recent events table. It relies only on the top-level `{ events: [...] }` response shape, ignores additional backend fields such as DynamoDB keys, and validates date ranges client-side before sending queries.
+The dashboard uses the `?aggregate=true` endpoint, which returns a pre-computed `{ summary }` object rather than raw events. This keeps response sizes small regardless of date range. Date ranges are validated client-side before any request is sent.
 
 ### Custom Dashboard Composition
 
@@ -105,6 +106,8 @@ import {
   TopPages,
   TopReferrers,
   TopLocations,
+  TopDevices,
+  TopBrowsers,
   WorldMap,
 } from '@quiet-ly/analytics/dashboard'
 ```
@@ -114,33 +117,30 @@ import {
 The package is designed for a single Lambda Function URL root.
 
 - Ingest: `POST <endpoint>`
-- Query: `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD`
-- Optional filtering: `type=<eventType>`
+- Query: `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&aggregate=true`
 - Browser usage assumptions: no cookies, no credentials, and no custom headers beyond `Content-Type`
 
-The dashboard expects a top-level response shaped like:
+The dashboard always adds `aggregate=true`, which returns a pre-aggregated summary instead of raw events:
 
 ```ts
 {
-  events: Array<{
-    appId: string
-    type: string
-    path: string
-    referrer: string
-    sessionId: string
-    visitorId: string
-    userId?: string
-    timestamp: string
-    timezone?: string
-    locale?: string
-    country?: string
-    params: Record<string, unknown>
-    [key: string]: unknown
-  }>
+  summary: {
+    totalEvents:    number
+    pageViews:      number
+    uniqueVisitors: number
+    dailyCounts:    Array<{ date: string; views: number }>       // page views per day, ascending
+    recentEvents:   Array<Event>                                  // up to 20, newest first
+    countryCounts:  Record<string, number>                        // ISO country code → page view count
+    topPages:       Array<{ path: string;     count: number }>
+    topReferrers:   Array<{ referrer: string; count: number }>
+    topLocations:   Array<{ location: string; count: number }>   // country code, falls back to timezone
+    topDevices:     Array<{ device: string;   count: number }>
+    topBrowsers:    Array<{ browser: string;  count: number }>
+  }
 }
 ```
 
-Unknown event fields are ignored, which allows the backend to return additional storage metadata without breaking the UI.
+Each `top*` array contains up to 10 entries sorted by count descending. `dailyCounts` only includes dates with at least one page view — the dashboard zero-fills gaps for the chart. Date ranges are capped at 366 days.
 
 ## Event Payload
 
@@ -162,7 +162,11 @@ Events sent by the SDK use this shape:
 }
 ```
 
-`country` is not sent by the browser SDK. If your backend adds country information, it should be treated as optional response-side enrichment. The current AWS implementation derives it from `CloudFront-Viewer-Country` when available.
+The following fields are **not** sent by the browser SDK — they are added server-side by the Lambda before storing each event:
+
+- `country` — two-letter ISO code derived from `CloudFront-Viewer-Country` (empty string when CloudFront is not in use)
+- `device` — `"mobile"`, `"tablet"`, or `"desktop"`, parsed from the `User-Agent` header
+- `browser` — `"Chrome"`, `"Firefox"`, `"Safari"`, `"Edge"`, `"Opera"`, `"Samsung"`, or `"Other"`, parsed from the `User-Agent` header
 
 ## Operational Notes
 

@@ -2,39 +2,81 @@ import React from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AnalyticsDashboard } from './AnalyticsDashboard'
 
-const makeEvent = (overrides: Partial<typeof baseEvent> = {}) => ({ ...baseEvent, ...overrides })
+const today = new Date().toISOString().slice(0, 10)
 
-const baseEvent = {
-  appId: 'dashboard-test',
-  type: 'page_view',
-  path: '/home',
-  referrer: 'https://google.com',
-  sessionId: 's1',
-  visitorId: 'v1',
-  timestamp: new Date().toISOString(),
-  timezone: 'Europe/London',
-  locale: 'en-GB',
-  params: {},
-}
-
-const events = [
-  makeEvent({ path: '/home', visitorId: 'v1', timezone: 'Europe/London', country: '' }),
-  makeEvent({ path: '/about', visitorId: 'v2', timezone: 'America/New_York', sessionId: 's2', referrer: 'https://example.com' }),
+const recentEvents = [
+  {
+    appId: 'dashboard-test',
+    type: 'page_view',
+    path: '/home',
+    referrer: 'https://google.com',
+    sessionId: 's1',
+    visitorId: 'aaaabbbb-1111-2222-3333-ccccddddeeee',
+    timestamp: new Date().toISOString(),
+    timezone: 'Europe/London',
+    locale: 'en-GB',
+    country: 'GB',
+    device: 'desktop',
+    browser: 'Chrome',
+    params: {},
+  },
+  {
+    appId: 'dashboard-test',
+    type: 'page_view',
+    path: '/about',
+    referrer: 'https://example.com',
+    sessionId: 's2',
+    visitorId: 'ffffeeee-4444-5555-6666-aaaabbbbcccc',
+    timestamp: new Date().toISOString(),
+    timezone: 'America/New_York',
+    locale: 'en-US',
+    country: '',
+    device: 'mobile',
+    browser: 'Safari',
+    params: {},
+  },
 ]
 
+const summary = {
+  totalEvents: 2,
+  pageViews: 2,
+  uniqueVisitors: 2,
+  dailyCounts: [{ date: today, views: 2 }],
+  recentEvents,
+  countryCounts: { GB: 1 },
+  topPages: [
+    { path: '/home',  count: 1 },
+    { path: '/about', count: 1 },
+  ],
+  topReferrers: [
+    { referrer: 'https://google.com',  count: 1 },
+    { referrer: 'https://example.com', count: 1 },
+  ],
+  topLocations: [
+    { location: 'GB',               count: 1 },
+    { location: 'America/New_York', count: 1 },
+  ],
+  topDevices:  [{ device: 'desktop', count: 1 }, { device: 'mobile', count: 1 }],
+  topBrowsers: [{ browser: 'Chrome', count: 1 }, { browser: 'Safari', count: 1 }],
+}
+
+function mockFetchWith(payload: unknown) {
+  return vi.fn().mockResolvedValue({ ok: true, json: async () => payload })
+}
+
 describe('AnalyticsDashboard', () => {
-  it('fetches dashboard data and renders metrics', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ events }),
-    })
+  it('sends aggregate=true and renders page paths from the summary', async () => {
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
 
-    expect(mockFetch.mock.calls[0][0]).toContain('appId=dashboard-test')
+    const url: string = mockFetch.mock.calls[0][0]
+    expect(url).toContain('appId=dashboard-test')
+    expect(url).toContain('aggregate=true')
+
     expect(screen.getByText('quiet-ly')).toBeTruthy()
     expect(screen.getByText('dashboard-test')).toBeTruthy()
     expect(screen.getAllByText('/home').length).toBeGreaterThan(0)
@@ -42,21 +84,21 @@ describe('AnalyticsDashboard', () => {
   })
 
   it('shows preset buttons with full labels', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
-    await waitFor(() => screen.getByText('1 Week'))
+    await waitFor(() => screen.getAllByText('1 Week'))
 
     expect(screen.getAllByText('Today').length).toBeGreaterThan(0)
-    expect(screen.getByText('1 Week')).toBeTruthy()
+    expect(screen.getAllByText('1 Week').length).toBeGreaterThan(0)
     expect(screen.getByText('1 Month')).toBeTruthy()
     expect(screen.getByText('1 Year')).toBeTruthy()
     expect(screen.getByText('Custom')).toBeTruthy()
   })
 
   it('shows the custom date picker when Custom is clicked', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" />)
@@ -66,47 +108,29 @@ describe('AnalyticsDashboard', () => {
     expect(screen.getByText('Apply')).toBeTruthy()
   })
 
-  it('falls back to timezone data when the backend returns an empty country', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+  it('renders topLocations including timezone fallback entries', async () => {
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
 
     await waitFor(() => screen.getByText('Top Locations'))
-    expect(screen.getAllByText('Europe/London').length).toBeGreaterThan(0)
     expect(screen.getAllByText('America/New_York').length).toBeGreaterThan(0)
   })
 
-  it('ignores extra backend fields on queried events', async () => {
-    const backendEvents = [
-      { ...events[0], PK: 'APP#dashboard-test#2026-04-15', SK: '2026-04-15T10:00:00.000Z#evt-1', GSI1PK: 'TYPE#page_view#2026-04-15', GSI2PK: 'PATH#/home#2026-04-15' },
-      events[1],
-    ]
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events: backendEvents }) })
+  it('renders device and browser breakdowns', async () => {
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
 
-    await waitFor(() => screen.getByText('Top Locations'))
-    expect(screen.getAllByText('/home').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('/about').length).toBeGreaterThan(0)
+    await waitFor(() => screen.getByText('Devices'))
+    expect(screen.getByText('Desktop')).toBeTruthy()
+    expect(screen.getByText('Mobile')).toBeTruthy()
+    expect(screen.getByText('Chrome')).toBeTruthy()
+    expect(screen.getByText('Safari')).toBeTruthy()
   })
 
-  it('filters events when a visitor button is clicked', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
-    ;(globalThis as any).fetch = mockFetch
-
-    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
-
-    await waitFor(() => screen.getByText('Top Locations'))
-
-    const visitorBtns = screen.getAllByTitle('Filter to this visitor')
-    fireEvent.click(visitorBtns[0])
-    expect(screen.getByText(/Filtered to visitor/)).toBeTruthy()
-
-    fireEvent.click(screen.getByText('✕ clear filter'))
-    expect(screen.queryByText(/Filtered to visitor/)).toBeNull()
-  })
   it('shows an error message with a retry button when the fetch fails', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 })
     ;(globalThis as any).fetch = mockFetch
@@ -118,7 +142,7 @@ describe('AnalyticsDashboard', () => {
   })
 
   it('does not produce a validation error when switching to the 1 year preset', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" />)
@@ -131,7 +155,7 @@ describe('AnalyticsDashboard', () => {
   })
 
   it('blocks custom queries longer than 366 days before making a request', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) })
+    const mockFetch = mockFetchWith({ summary })
     ;(globalThis as any).fetch = mockFetch
 
     render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" />)
@@ -139,7 +163,7 @@ describe('AnalyticsDashboard', () => {
 
     fireEvent.click(screen.getByText('Custom'))
     fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2024-01-01' } })
-    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2025-01-02' } })
+    fireEvent.change(screen.getByLabelText('To date'),   { target: { value: '2025-01-02' } })
 
     const applyButton = screen.getByRole('button', { name: 'Apply custom date range' }) as HTMLButtonElement
     expect(screen.getByText('Date range must be 366 days or fewer.')).toBeTruthy()

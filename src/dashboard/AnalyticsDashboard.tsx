@@ -4,6 +4,8 @@ import { PageViewsChart } from './PageViewsChart'
 import { TopPages } from './TopPages'
 import { TopReferrers } from './TopReferrers'
 import { TopLocations } from './TopLocations'
+import { TopDevices } from './TopDevices'
+import { TopBrowsers } from './TopBrowsers'
 import { WorldMap } from './WorldMap'
 
 const ANIMATIONS = `
@@ -20,6 +22,9 @@ const ANIMATIONS = `
   }
   .qly-btn:hover { filter: brightness(1.12); }
   .qly-btn:active { filter: brightness(0.88); transform: scale(0.96); }
+  .qly-visitor-btn:hover { background: #dbeafe !important; color: #1d4ed8 !important; }
+  .qly-visitor-btn-active:hover { background: #bfdbfe !important; }
+  .qly-expandable-row:hover td { background: #f8fafc; }
 `
 
 const skShimmer: React.CSSProperties = {
@@ -59,7 +64,7 @@ const PRESETS: Array<{ key: Preset; label: string }> = [
   { key: 'custom', label: 'Custom'  },
 ]
 
-interface DashboardEvent {
+interface SummaryEvent {
   appId: string
   type: string
   path: string
@@ -71,12 +76,28 @@ interface DashboardEvent {
   timezone?: string
   locale?: string
   country?: string
+  device?: string
+  browser?: string
   params: Record<string, unknown>
   [key: string]: unknown
 }
 
-interface QueryResponse {
-  events?: DashboardEvent[]
+interface SummaryData {
+  totalEvents: number
+  pageViews: number
+  uniqueVisitors: number
+  dailyCounts: Array<{ date: string; views: number }>
+  recentEvents: SummaryEvent[]
+  countryCounts: Record<string, number>
+  topPages: Array<{ path: string; count: number }>
+  topReferrers: Array<{ referrer: string; count: number }>
+  topLocations: Array<{ location: string; count: number }>
+  topDevices: Array<{ device: string; count: number }>
+  topBrowsers: Array<{ browser: string; count: number }>
+}
+
+interface AggregateResponse {
+  summary?: SummaryData
   [key: string]: unknown
 }
 
@@ -170,7 +191,7 @@ function getDateRangeError(from: string, to: string): string | null {
 }
 
 function getLocationLabel(
-  event: Pick<DashboardEvent, 'country' | 'timezone'>,
+  event: Pick<SummaryEvent, 'country' | 'timezone'>,
   fallback = '',
 ): string {
   return event.country?.trim() || event.timezone?.trim() || fallback
@@ -183,12 +204,12 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
   const initialPreset = dateRangeToPreset(dateRange)
   const initialRange  = presetToRange(initialPreset)
 
-  const [events,        setEvents]        = useState<DashboardEvent[]>([])
+  const [summary,       setSummary]       = useState<SummaryData | null>(null)
   const [expandedRow,   setExpandedRow]   = useState<string | null>(null)
+  const [visitorFilter, setVisitorFilter] = useState<string | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [hasLoaded,     setHasLoaded]     = useState(false)
   const [error,         setError]         = useState<string | null>(null)
-  const [visitorFilter, setVisitorFilter] = useState<string | null>(null)
 
   const [activePreset, setActivePreset] = useState<Preset>(initialPreset)
   const [from,         setFrom]         = useState(initialRange.from)
@@ -224,13 +245,13 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
       url.searchParams.set('appId', appId)
       url.searchParams.set('from', fromDate)
       url.searchParams.set('to', toDate)
+      url.searchParams.set('aggregate', 'true')
 
       const res = await fetch(url.toString(), { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: QueryResponse = await res.json()
-      setEvents(Array.isArray(data.events) ? data.events : [])
+      const data: AggregateResponse = await res.json()
+      setSummary(data.summary ?? null)
       setHasLoaded(true)
-      setVisitorFilter(null)
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return
       setError(e instanceof Error ? e.message : 'Failed to load analytics')
@@ -261,107 +282,30 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
       setError(customRangeError)
       return
     }
-
     setFrom(customFrom)
     setTo(customTo)
   }
 
-  // ─── visitor filter ─────────────────────────────────────────────────────────
+  // ─── derived data ──────────────────────────────────────────────────────────
 
-  const activeEvents = useMemo(
-    () => visitorFilter ? events.filter((e) => e.visitorId === visitorFilter) : events,
-    [events, visitorFilter],
-  )
+  const rangeStatLabel = useMemo(() => {
+    if (activePreset === '1d')     return 'Today'
+    if (activePreset === 'custom') return `${formatDateShort(from)} – ${formatDateShort(to)}`
+    return PRESETS.find((p) => p.key === activePreset)!.label
+  }, [activePreset, from, to])
 
-  // ─── aggregation ───────────────────────────────────────────────────────────
-
-  const pageViews = useMemo(
-    () => activeEvents.filter((e) => e.type === 'page_view'),
-    [activeEvents],
-  )
-
-  const pvStats = useMemo(() => {
-    const today  = toDateStr(new Date())
-    const total  = pageViews.length
-    const todayN = pageViews.filter((e) => e.timestamp.slice(0, 10) === today).length
-    const last7  = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(6)).length
-    const last30 = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(29)).length
-    const last90 = pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(89)).length
-    if (activePreset === '1d')  return [{ label: 'Today',   value: total  }]
-    if (activePreset === '7d')  return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: total  }]
-    if (activePreset === '30d') return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: last7  }, { label: '30 days', value: total  }]
-    if (activePreset === '1y')  return [{ label: '30 days', value: last30 }, { label: '90 days', value: last90 }, { label: '1 year',  value: total  }]
-    return [{ label: 'Total', value: total }]
-  }, [pageViews, activePreset])
-
-  const uvStats = useMemo(() => {
-    const today  = toDateStr(new Date())
-    const total  = new Set(pageViews.map((e) => e.visitorId)).size
-    const todayN = new Set(pageViews.filter((e) => e.timestamp.slice(0, 10) === today).map((e) => e.visitorId)).size
-    const last7  = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(6)).map((e) => e.visitorId)).size
-    const last30 = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(29)).map((e) => e.visitorId)).size
-    const last90 = new Set(pageViews.filter((e) => new Date(e.timestamp) >= daysAgo(89)).map((e) => e.visitorId)).size
-    if (activePreset === '1d')  return [{ label: 'Today',   value: total  }]
-    if (activePreset === '7d')  return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: total  }]
-    if (activePreset === '30d') return [{ label: 'Today',   value: todayN }, { label: '7 days',  value: last7  }, { label: '30 days', value: total  }]
-    if (activePreset === '1y')  return [{ label: '30 days', value: last30 }, { label: '90 days', value: last90 }, { label: '1 year',  value: total  }]
-    return [{ label: 'Total', value: total }]
-  }, [pageViews, activePreset])
-
-  // Chart - day buckets for the active range
-  const chartData = useMemo(() => {
-    const pvByDay: Record<string, number> = {}
-    daysBetween(from, to).forEach((d) => { pvByDay[d] = 0 })
-    pageViews.forEach((e) => {
-      const d = e.timestamp.slice(0, 10)
-      if (d in pvByDay) pvByDay[d]++
-    })
-    return Object.entries(pvByDay).map(([date, views]) => ({ date, views }))
-  }, [pageViews, from, to])
-
-  // Chart section label + MetricCard range stat label
   const rangeLabel = useMemo(() => {
-    if (activePreset === '1d')     return `Page Views · Today`
+    if (activePreset === '1d')     return 'Page Views · Today'
     if (activePreset === 'custom') return `Page Views · ${formatDateShort(from)} – ${formatDateShort(to)}`
     const name = PRESETS.find((p) => p.key === activePreset)!.label
     return `Page Views · Last ${name}`
   }, [activePreset, from, to])
 
-  // Tables
-  const topPages = useMemo(() => {
-    const counts: Record<string, number> = {}
-    pageViews.forEach((e) => { counts[e.path] = (counts[e.path] ?? 0) + 1 })
-    return Object.entries(counts).map(([path, views]) => ({ path, views })).sort((a, b) => b.views - a.views)
-  }, [pageViews])
-
-  const topReferrers = useMemo(() => {
-    const counts: Record<string, number> = {}
-    pageViews.forEach((e) => { const r = e.referrer ?? ''; counts[r] = (counts[r] ?? 0) + 1 })
-    return Object.entries(counts).map(([referrer, count]) => ({ referrer, count })).sort((a, b) => b.count - a.count)
-  }, [pageViews])
-
-  const topLocations = useMemo(() => {
-    const counts: Record<string, number> = {}
-    pageViews.forEach((e) => {
-      const location = getLocationLabel(e, 'Unknown')
-      counts[location] = (counts[location] ?? 0) + 1
-    })
-    return Object.entries(counts).map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count)
-  }, [pageViews])
-
-  const countryCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    pageViews.forEach((e) => {
-      const country = e.country?.trim()
-      if (country) counts[country] = (counts[country] ?? 0) + 1
-    })
-    return counts
-  }, [pageViews])
-
-  const recentEvents = useMemo(
-    () => [...activeEvents].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20),
-    [activeEvents],
-  )
+  // Zero-fill all dates in range so the chart shows gaps correctly
+  const chartData = useMemo(() => {
+    const byDay = Object.fromEntries((summary?.dailyCounts ?? []).map((d) => [d.date, d.views]))
+    return daysBetween(from, to).map((date) => ({ date, views: byDay[date] ?? 0 }))
+  }, [summary, from, to])
 
   // ─── render ────────────────────────────────────────────────────────────────
 
@@ -471,179 +415,188 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
       <div style={{ padding: bodyPad, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : undefined }}>
 
         {/* Date range bar */}
-      <div style={styles.rangeBar}>
-        <div style={styles.presetGroup}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => handlePresetClick(p.key)}
-              style={activePreset === p.key ? styles.presetActive : styles.presetBtn}
-              className="qly-btn"
-              aria-pressed={activePreset === p.key}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div style={styles.rangeBar}>
+          <div style={styles.presetGroup}>
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => handlePresetClick(p.key)}
+                style={activePreset === p.key ? styles.presetActive : styles.presetBtn}
+                className="qly-btn"
+                aria-pressed={activePreset === p.key}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {activePreset === 'custom' && (
+            <div style={styles.customPicker}>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || today}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                style={styles.dateInput}
+                aria-label="From date"
+              />
+              <span style={styles.dateSep}>→</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={today}
+                onChange={(e) => setCustomTo(e.target.value)}
+                style={styles.dateInput}
+                aria-label="To date"
+              />
+              <button
+                onClick={handleApplyCustom}
+                disabled={customRangeError !== null}
+                style={styles.applyBtn}
+                className="qly-btn"
+                aria-label="Apply custom date range"
+              >
+                Apply
+              </button>
+              {customRangeError && (
+                <span style={styles.customRangeError}>{customRangeError}</span>
+              )}
+            </div>
+          )}
         </div>
 
-        {activePreset === 'custom' && (
-          <div style={styles.customPicker}>
-            <input
-              type="date"
-              value={customFrom}
-              max={customTo || today}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              style={styles.dateInput}
-              aria-label="From date"
-            />
-            <span style={styles.dateSep}>→</span>
-            <input
-              type="date"
-              value={customTo}
-              min={customFrom}
-              max={today}
-              onChange={(e) => setCustomTo(e.target.value)}
-              style={styles.dateInput}
-              aria-label="To date"
-            />
-            <button
-              onClick={handleApplyCustom}
-              disabled={customRangeError !== null}
-              style={styles.applyBtn}
-              className="qly-btn"
-              aria-label="Apply custom date range"
-            >
-              Apply
-            </button>
-            {customRangeError && (
-              <span style={styles.customRangeError}>{customRangeError}</span>
+        {/* Metric cards */}
+        <div style={styles.cards}>
+          <MetricCard label="Page Views"      stats={[{ label: rangeStatLabel, value: summary?.pageViews      ?? 0 }]} />
+          <MetricCard label="Unique Visitors" stats={[{ label: rangeStatLabel, value: summary?.uniqueVisitors ?? 0 }]} />
+        </div>
+
+        {/* Chart */}
+        <div style={{ ...styles.section, padding: sectionPad }}>
+          <h3 style={styles.sectionTitle}>{rangeLabel}</h3>
+          <PageViewsChart data={chartData} rangeKey={`${from}-${to}`} />
+        </div>
+
+        {/* World map */}
+        <div style={{ ...styles.section, padding: sectionPad }}>
+          <h3 style={styles.sectionTitle}>Traffic by Country</h3>
+          <WorldMap countryCounts={summary?.countryCounts ?? {}} />
+        </div>
+
+        {/* Tables */}
+        <div style={styles.tables}>
+          <div style={{ ...styles.tableSection, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>Top Pages</h3>
+            <TopPages rows={summary?.topPages ?? []} />
+          </div>
+          <div style={{ ...styles.tableSection, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>Top Referrers</h3>
+            <TopReferrers rows={summary?.topReferrers ?? []} />
+          </div>
+          <div style={{ ...styles.tableSection, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>Top Locations</h3>
+            <TopLocations rows={summary?.topLocations ?? []} />
+          </div>
+          <div style={{ ...styles.tableSection, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>Devices</h3>
+            <TopDevices rows={summary?.topDevices ?? []} />
+          </div>
+          <div style={{ ...styles.tableSection, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>Browsers</h3>
+            <TopBrowsers rows={summary?.topBrowsers ?? []} />
+          </div>
+        </div>
+
+        {/* Recent events */}
+        <div style={{ ...styles.section, padding: sectionPad }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={{ ...styles.sectionTitle, margin: 0 }}>Recent Events</h3>
+            {visitorFilter && (
+              <div style={styles.filterBanner}>
+                <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{visitorFilter.slice(0, 8)}…</span>
+                <button onClick={() => setVisitorFilter(null)} style={styles.clearFilterBtn} className="qly-btn" aria-label="Clear visitor filter">✕ Clear</button>
+              </div>
             )}
           </div>
-        )}
-      </div>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: isMobile ? 480 : undefined }}>
+              <thead>
+                <tr>
+                  <th style={styles.recentTh}>Time</th>
+                  <th style={styles.recentTh}>Type</th>
+                  <th style={styles.recentTh}>Path</th>
+                  {!isMobile && <th style={styles.recentTh}>Location</th>}
+                  <th style={styles.recentTh}>
+                    <span title="Click a visitor ID to filter" style={{ cursor: 'default' }}>Visitor <span style={{ color: '#94a3b8', fontSize: 10 }}>▼</span></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(summary?.recentEvents ?? [])
+                  .filter((e) => !visitorFilter || e.visitorId === visitorFilter)
+                  .map((e) => {
+                    const rowKey       = `${e.visitorId}-${e.sessionId}-${e.timestamp}`
+                    const paramEntries = Object.entries(e.params ?? {})
+                    const isExpanded   = expandedRow === rowKey
+                    const isFiltered   = visitorFilter === e.visitorId
 
-      {/* Visitor filter banner */}
-      {visitorFilter && (
-        <div style={styles.filterBanner}>
-          <span>
-            Filtered to visitor <code style={styles.filterCode}>{visitorFilter.slice(0, 8)}…</code>
-          </span>
-          <button onClick={() => setVisitorFilter(null)} style={styles.clearFilterBtn} className="qly-btn">
-            ✕ clear filter
-          </button>
-        </div>
-      )}
-
-      {/* Metric cards */}
-      <div style={styles.cards}>
-        <MetricCard label="Page Views"      stats={pvStats} />
-        <MetricCard label="Unique Visitors" stats={uvStats} />
-      </div>
-
-      {/* Chart */}
-      <div style={{ ...styles.section, padding: sectionPad }}>
-        <h3 style={styles.sectionTitle}>{rangeLabel}</h3>
-        <PageViewsChart data={chartData} rangeKey={`${from}-${to}`} />
-      </div>
-
-      {/* World map */}
-      <div style={{ ...styles.section, padding: sectionPad }}>
-        <h3 style={styles.sectionTitle}>Traffic by Country</h3>
-        <WorldMap countryCounts={countryCounts} />
-      </div>
-
-      {/* Tables */}
-      <div style={styles.tables}>
-        <div style={{ ...styles.tableSection, padding: sectionPad }}>
-          <h3 style={styles.sectionTitle}>Top Pages</h3>
-          <TopPages rows={topPages} />
-        </div>
-        <div style={{ ...styles.tableSection, padding: sectionPad }}>
-          <h3 style={styles.sectionTitle}>Top Referrers</h3>
-          <TopReferrers rows={topReferrers} />
-        </div>
-        <div style={{ ...styles.tableSection, padding: sectionPad }}>
-          <h3 style={styles.sectionTitle}>Top Locations</h3>
-          <TopLocations rows={topLocations} />
-        </div>
-      </div>
-
-      {/* Recent events */}
-      <div style={{ ...styles.section, padding: sectionPad }}>
-        <h3 style={styles.sectionTitle}>Recent Events</h3>
-        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: isMobile ? 480 : undefined }}>
-            <thead>
-              <tr>
-                <th style={styles.recentTh}>Time</th>
-                <th style={styles.recentTh}>Type</th>
-                <th style={styles.recentTh}>Path</th>
-                {!isMobile && <th style={styles.recentTh}>Location</th>}
-                <th style={styles.recentTh}>Visitor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentEvents.map((e) => {
-                const rowKey       = `${e.visitorId}-${e.sessionId}-${e.timestamp}`
-                const paramEntries = Object.entries(e.params ?? {})
-                const isExpanded   = expandedRow === rowKey
-
-                return (
-                  <React.Fragment key={rowKey}>
-                    <tr
-                      onClick={paramEntries.length > 0 ? () => setExpandedRow(isExpanded ? null : rowKey) : undefined}
-                      style={paramEntries.length > 0 ? { cursor: 'pointer' } : {}}
-                    >
-                      <td style={styles.recentTd}>{new Date(e.timestamp).toLocaleString()}</td>
-                      <td style={styles.recentTd}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <code style={styles.eventType}>{e.type}</code>
-                          {paramEntries.length > 0 && (
-                            <span style={styles.paramsToggle} aria-hidden="true">
-                              {isExpanded ? '▾' : '▸'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ ...styles.recentTd, fontFamily: 'monospace', fontSize: 11 }}>{e.path}</td>
-                      {!isMobile && (
-                        <td style={{ ...styles.recentTd, color: '#64748b', fontSize: 11 }}>
-                          {getLocationLabel(e, '-')}
-                        </td>
-                      )}
-                      <td style={styles.recentTd}>
-                        <button
-                          onClick={(ev) => { ev.stopPropagation(); setVisitorFilter(visitorFilter === e.visitorId ? null : e.visitorId) }}
-                          style={{ ...styles.visitorBtn, ...(visitorFilter === e.visitorId ? styles.visitorBtnActive : {}) }}
-                          className="qly-btn"
-                          aria-label={visitorFilter === e.visitorId ? 'Clear visitor filter' : `Filter to visitor ${e.visitorId.slice(0, 8)}`}
-                          title={visitorFilter === e.visitorId ? 'Clear filter' : 'Filter to this visitor'}
+                    return (
+                      <React.Fragment key={rowKey}>
+                        <tr
+                          onClick={paramEntries.length > 0 ? () => setExpandedRow(isExpanded ? null : rowKey) : undefined}
+                          style={paramEntries.length > 0 ? { cursor: 'pointer' } : {}}
+                          className={paramEntries.length > 0 ? 'qly-expandable-row' : undefined}
                         >
-                          {e.visitorId.slice(0, 8)}…
-                        </button>
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr>
-                        <td colSpan={isMobile ? 4 : 5} style={styles.paramsRow}>
-                          {paramEntries.map(([k, v]) => (
-                            <span key={k} style={styles.paramPair}>
-                              <span style={styles.paramKey}>{k}</span>
-                              <span style={styles.paramVal}>
-                                {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                              </span>
-                            </span>
-                          ))}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </table>
+                          <td style={styles.recentTd}>{new Date(e.timestamp).toLocaleString()}</td>
+                          <td style={styles.recentTd}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <code style={styles.eventType}>{e.type}</code>
+                              {paramEntries.length > 0 && (
+                                <span style={styles.paramsToggle} aria-hidden="true">
+                                  {isExpanded ? '▾' : '▸'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ ...styles.recentTd, fontFamily: 'monospace', fontSize: 11 }}>{e.path}</td>
+                          {!isMobile && (
+                            <td style={{ ...styles.recentTd, color: '#64748b', fontSize: 11 }}>
+                              {getLocationLabel(e, '-')}
+                            </td>
+                          )}
+                          <td style={styles.recentTd}>
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); setVisitorFilter(isFiltered ? null : e.visitorId) }}
+                              style={{ ...styles.visitorBtn, ...(isFiltered ? styles.visitorBtnActive : {}) }}
+                              className={isFiltered ? 'qly-visitor-btn-active' : 'qly-visitor-btn'}
+                              title={isFiltered ? 'Clear filter' : 'Filter by this visitor'}
+                            >
+                              {e.visitorId.slice(0, 8)}…
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={isMobile ? 4 : 5} style={styles.paramsRow}>
+                              {paramEntries.map(([k, v]) => (
+                                <span key={k} style={styles.paramPair}>
+                                  <span style={styles.paramKey}>{k}</span>
+                                  <span style={styles.paramVal}>
+                                    {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                                  </span>
+                                </span>
+                              ))}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
       </div>{/* /body */}
     </div>
@@ -747,39 +700,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
   },
 
-  // Visitor filter banner
-  filterBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 8,
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: 6,
-    padding: '8px 12px',
-    marginBottom: 16,
-    fontSize: 13,
-    color: '#1e293b',
-  },
-  filterCode: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    background: '#e2e8f0',
-    color: '#0f172a',
-    padding: '1px 5px',
-    borderRadius: 3,
-  },
-  clearFilterBtn: {
-    background: 'none',
-    border: '1px solid #e2e8f0',
-    borderRadius: 5,
-    padding: '3px 8px',
-    cursor: 'pointer',
-    fontSize: 12,
-    color: '#64748b',
-  },
-
   // Cards / sections
   card: {
     border: '1px solid #e2e8f0',
@@ -816,6 +736,42 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
   },
 
+  // Visitor filter
+  filterBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    background: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+    borderRadius: 6,
+    padding: '4px 8px',
+    fontSize: 12,
+    color: '#475569',
+  },
+  clearFilterBtn: {
+    background: 'none',
+    border: 'none',
+    padding: '1px 4px',
+    cursor: 'pointer',
+    fontSize: 11,
+    color: '#64748b',
+    borderRadius: 4,
+  },
+  visitorBtn: {
+    background: '#f1f5f9',
+    border: 'none',
+    padding: '1px 4px',
+    borderRadius: 3,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    color: '#94a3b8',
+  } as React.CSSProperties,
+  visitorBtnActive: {
+    color: '#0f172a',
+    background: '#e2e8f0',
+  },
+
   // Recent events table
   recentTh: {
     padding: '6px 8px',
@@ -826,21 +782,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   recentTd: { padding: '6px 8px', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' as const },
   eventType: { fontSize: 11, background: '#f1f5f9', padding: '1px 4px', borderRadius: 3 },
-  visitorBtn: {
-    background: 'none',
-    border: '1px solid #e2e8f0',
-    borderRadius: 4,
-    padding: '2px 6px',
-    cursor: 'pointer',
-    fontSize: 11,
-    color: '#64748b',
-    fontFamily: 'monospace',
-  },
-  visitorBtnActive: {
-    background: '#f1f5f9',
-    border: '1px solid #e2e8f0',
-    color: '#1e293b',
-  },
 
   // Params expansion
   paramsToggle: {

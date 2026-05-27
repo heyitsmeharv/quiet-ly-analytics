@@ -2,7 +2,7 @@ import React from 'react'
 
 interface Row {
   path: string
-  views: number
+  count: number
 }
 
 interface Props {
@@ -14,7 +14,7 @@ export function TopPages({ rows }: Props) {
     return <div style={{ color: '#94a3b8', fontSize: 13 }}>No data</div>
   }
 
-  const max = rows[0].views
+  const max = rows[0].count
 
   return (
     <table style={styles.table}>
@@ -29,12 +29,12 @@ export function TopPages({ rows }: Props) {
           <tr key={row.path}>
             <td style={styles.td}>
               <div style={styles.barWrap}>
-                <div style={{ ...styles.bar, width: `${(row.views / max) * 100}%` }} />
+                <div style={{ ...styles.bar, width: `${(row.count / max) * 100}%` }} />
                 <span style={styles.path}>{row.path}</span>
               </div>
             </td>
             <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {row.views.toLocaleString()}
+              {row.count.toLocaleString()}
             </td>
           </tr>
         ))}
