@@ -171,3 +171,57 @@ describe('AnalyticsDashboard', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('AnalyticsDashboard — User Journey / FunnelChart', () => {
+  const funnelSteps = [
+    { label: 'Home',  type: 'page_view', path: '/home'  },
+    { label: 'About', type: 'page_view', path: '/about' },
+  ]
+
+  it('does not render User Journey when funnelSteps is not provided', async () => {
+    ;(globalThis as any).fetch = mockFetchWith({ summary })
+
+    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} />)
+    await waitFor(() => screen.getByText('Recent Events'))
+
+    fireEvent.click(screen.getAllByText('aaaabbbb…')[0])
+
+    expect(screen.queryByText('User Journey')).toBeNull()
+  })
+
+  it('does not render User Journey when no visitor is selected', async () => {
+    ;(globalThis as any).fetch = mockFetchWith({ summary })
+
+    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} funnelSteps={funnelSteps} />)
+    await waitFor(() => screen.getByText('Recent Events'))
+
+    expect(screen.queryByText('User Journey')).toBeNull()
+  })
+
+  it('renders User Journey and issues a funnel fetch with funnelSteps and visitorId when a visitor is selected', async () => {
+    const funnelResult = [
+      { label: 'Home',  type: 'page_view', count: 1, conversionRate: null },
+      { label: 'About', type: 'page_view', count: 0, conversionRate: null },
+    ]
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes('funnelSteps')) {
+        return { ok: true, json: async () => ({ funnel: funnelResult }) }
+      }
+      return { ok: true, json: async () => ({ summary }) }
+    })
+    ;(globalThis as any).fetch = mockFetch
+
+    render(<AnalyticsDashboard endpoint="https://example.lambda-url.aws" appId="dashboard-test" dateRange={7} funnelSteps={funnelSteps} />)
+    await waitFor(() => screen.getByText('Recent Events'))
+
+    fireEvent.click(screen.getAllByText('aaaabbbb…')[0])
+
+    await waitFor(() => expect(screen.getByText('User Journey')).toBeTruthy())
+
+    const funnelCall = mockFetch.mock.calls.find(([url]: [string]) => String(url).includes('funnelSteps'))
+    expect(funnelCall).toBeTruthy()
+    const calledUrl = String(funnelCall[0])
+    expect(calledUrl).toContain('funnelSteps')
+    expect(calledUrl).toContain('visitorId=aaaabbbb-1111-2222-3333-ccccddddeeee')
+  })
+})

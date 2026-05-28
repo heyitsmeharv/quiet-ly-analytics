@@ -42,8 +42,9 @@ function generateMockEvents() {
     const count  = Math.round((5 + Math.floor(Math.random() * 15)) * growth)
 
     for (let j = 0; j < count; j++) {
-      const ts = new Date(base)
-      ts.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), 0, 0)
+      const ts      = new Date(base)
+      const maxHour = i === 0 ? new Date().getHours() : 24
+      ts.setHours(Math.floor(Math.random() * Math.max(maxHour, 1)), Math.floor(Math.random() * 60), 0, 0)
       events.push({
         appId:     'my-portfolio',
         type:      'page_view',
@@ -144,9 +145,79 @@ function buildSummary(allEvents: any[], from: string, to: string) {
   }
 }
 
+// ─── funnel helper (mirrors Lambda computeFunnel) ────────────────────────────
+
+function matchesStep(event: any, step: any) {
+  return event.type === step.type && (!step.path || event.path === step.path)
+}
+
+function computeFunnel(allEvents: any[], from: string, to: string, steps: any[], visitorId?: string | null) {
+  const start = new Date(from + 'T00:00:00').getTime()
+  const end   = new Date(to   + 'T23:59:59').getTime()
+  const rangeEvents = allEvents.filter((e) => {
+    const t = new Date(e.timestamp).getTime()
+    return t >= start && t <= end
+  })
+
+  const byVisitor: Record<string, any[]> = {}
+  for (const event of rangeEvents) {
+    if (!event.visitorId) continue
+    if (visitorId && event.visitorId !== visitorId) continue
+    ;(byVisitor[event.visitorId] ??= []).push(event)
+  }
+  for (const evs of Object.values(byVisitor)) {
+    evs.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  }
+
+  const stepCounts = new Array(steps.length).fill(0)
+  for (const evs of Object.values(byVisitor)) {
+    let idx = 0
+    for (const event of evs) {
+      if (idx >= steps.length) break
+      if (matchesStep(event, steps[idx])) { stepCounts[idx]++; idx++ }
+    }
+  }
+
+  return steps.map((step: any, i: number) => ({
+    label: step.label || step.path || step.type,
+    type: step.type,
+    ...(step.path ? { path: step.path } : {}),
+    count: stepCounts[i],
+    conversionRate: i === 0 || stepCounts[i - 1] === 0
+      ? null
+      : stepCounts[i] / stepCounts[i - 1],
+  }))
+}
+
 // ─── intercept fetch ─────────────────────────────────────────────────────────
 
-const mockEvents = generateMockEvents()
+// Fixed visitor whose journey covers all three stepper states:
+// navigation (filled) → custom action (dark outline) → not reached (light outline)
+const DEMO_VISITOR_ID = 'v-demo-journey'
+const demoJourney = [
+  { type: 'page_view',       path: '/home',     minutesAgo: 5   },
+  { type: 'page_view',       path: '/about',    minutesAgo: 4   },
+  { type: 'cv_downloaded',   path: '/about',    minutesAgo: 3.5 },
+  { type: 'page_view',       path: '/projects', minutesAgo: 3   },
+  { type: 'project_clicked', path: '/projects', minutesAgo: 2   },
+  // stops here — steps 6-14 intentionally absent to show light-outline state
+].map(({ type, path, minutesAgo }) => ({
+  appId:     'my-portfolio',
+  type,
+  path,
+  referrer:  '',
+  sessionId: 's-demo',
+  visitorId: DEMO_VISITOR_ID,
+  timestamp: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
+  timezone:  'Europe/London',
+  locale:    'en-GB',
+  country:   'GB',
+  device:    'desktop',
+  browser:   'Chrome',
+  params:    {},
+}))
+
+const mockEvents = [...generateMockEvents(), ...demoJourney]
 
 const realFetch = window.fetch.bind(window)
 window.fetch = async (input, init) => {
@@ -172,6 +243,16 @@ window.fetch = async (input, init) => {
       init?.signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')) })
     })
 
+    const funnelStepsParam = params.get('funnelSteps')
+    if (funnelStepsParam) {
+      const steps = JSON.parse(funnelStepsParam)
+      const funnel = computeFunnel(mockEvents, from, to, steps, params.get('visitorId'))
+      return new Response(JSON.stringify({ funnel }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     const summary = buildSummary(mockEvents, from, to)
     return new Response(JSON.stringify({ summary }), {
       status: 200,
@@ -184,6 +265,23 @@ window.fetch = async (input, init) => {
 
 // ─── app ─────────────────────────────────────────────────────────────────────
 
+const DEMO_FUNNEL = [
+  { label: 'Home',              type: 'page_view',        path: '/home'                },
+  { label: 'About',             type: 'page_view',        path: '/about'               },
+  { label: 'CV Downloaded',     type: 'cv_downloaded'                                  },
+  { label: 'Projects',          type: 'page_view',        path: '/projects'            },
+  { label: 'Project Clicked',   type: 'project_clicked'                                },
+  { label: 'AWS Blog',          type: 'page_view',        path: '/blog/aws-s3'         },
+  { label: 'React Blog',        type: 'page_view',        path: '/blog/react-hooks'    },
+  { label: 'Terraform Blog',    type: 'page_view',        path: '/blog/terraform-intro'},
+  { label: 'Theme Changed',     type: 'theme_changed'                                  },
+  { label: 'Contact',           type: 'page_view',        path: '/contact'             },
+  { label: 'Form Submitted',    type: 'contact_submitted'                              },
+  { label: 'Newsletter',        type: 'newsletter_signup'                              },
+  { label: 'Referral Share',    type: 'referral_share'                                 },
+  { label: 'Hired!',            type: 'job_offer_sent'                                 },
+]
+
 function App() {
   return (
     <div style={{ padding: '16px 0' }}>
@@ -191,6 +289,7 @@ function App() {
         endpoint="https://mock-endpoint.lambda-url.eu-west-2.on.aws"
         appId="my-portfolio"
         dateRange={30}
+        funnelSteps={DEMO_FUNNEL}
       />
     </div>
   )

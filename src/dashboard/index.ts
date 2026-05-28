@@ -1,5 +1,7 @@
 export { AnalyticsDashboard } from './AnalyticsDashboard'
 export type { AnalyticsDashboardProps } from './AnalyticsDashboard'
+export { FunnelChart } from './FunnelChart'
+export type { FunnelChartProps, FunnelStep } from './FunnelChart'
 export { MetricCard } from './MetricCard'
 export { PageViewsChart } from './PageViewsChart'
 export { TopLocations } from './TopLocations'

@@ -92,8 +92,50 @@ The dashboard includes:
 - world heatmap by country (falls back gracefully when country data is absent)
 - recent events table with click-to-filter by visitor
 - preset and custom date ranges (Today, 1 Week, 1 Month, 1 Year, Custom)
+- user journey stepper — shown when a visitor is selected and `funnelSteps` is provided
 
 The dashboard uses the `?aggregate=true` endpoint, which returns a pre-computed `{ summary }` object rather than raw events. This keeps response sizes small regardless of date range. Date ranges are validated client-side before any request is sent.
+
+### Funnel analysis
+
+Pass an ordered list of steps to enable the User Journey panel. It appears automatically when a visitor is selected from the Recent Events table:
+
+```tsx
+<AnalyticsDashboard
+  endpoint="https://xxxx.lambda-url.eu-west-2.on.aws"
+  appId="my-portfolio"
+  dateRange={30}
+  funnelSteps={[
+    { label: 'Home',            type: 'page_view', path: '/home'     },
+    { label: 'About',           type: 'page_view', path: '/about'    },
+    { label: 'CV Downloaded',   type: 'cv_downloaded'                 },
+    { label: 'Projects',        type: 'page_view', path: '/projects' },
+    { label: 'Project Clicked', type: 'project_clicked'              },
+  ]}
+/>
+```
+
+Each step has a `type` (the event type string) and an optional `path` filter. Steps are matched in order per visitor — a visitor must reach step _n_ before step _n+1_ counts.
+
+The `FunnelChart` component is also available standalone for embedding funnel views outside the dashboard:
+
+```tsx
+import { FunnelChart } from '@quiet-ly/analytics/dashboard'
+
+<FunnelChart
+  endpoint="https://xxxx.lambda-url.eu-west-2.on.aws"
+  appId="my-portfolio"
+  from="2026-05-01"
+  to="2026-05-28"
+  steps={[
+    { label: 'Home',          type: 'page_view', path: '/home'  },
+    { label: 'CV Downloaded', type: 'cv_downloaded'              },
+  ]}
+  visitorId="v-abc123"   // omit for aggregate funnel across all visitors
+/>
+```
+
+Without `visitorId` the chart shows a horizontal bar funnel with conversion rates. With `visitorId` it switches to a horizontal stepper showing which steps that specific visitor completed.
 
 ### Custom Dashboard Composition
 
@@ -109,6 +151,7 @@ import {
   TopDevices,
   TopBrowsers,
   WorldMap,
+  FunnelChart,
 } from '@quiet-ly/analytics/dashboard'
 ```
 
@@ -117,7 +160,8 @@ import {
 The package is designed for a single Lambda Function URL root.
 
 - Ingest: `POST <endpoint>`
-- Query: `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&aggregate=true`
+- Query (aggregate): `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&aggregate=true`
+- Query (funnel): `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&funnelSteps=[...]`
 - Browser usage assumptions: no cookies, no credentials, and no custom headers beyond `Content-Type`
 
 The dashboard always adds `aggregate=true`, which returns a pre-aggregated summary instead of raw events:
@@ -141,6 +185,36 @@ The dashboard always adds `aggregate=true`, which returns a pre-aggregated summa
 ```
 
 Each `top*` array contains up to 10 entries sorted by count descending. `dailyCounts` only includes dates with at least one page view — the dashboard zero-fills gaps for the chart. Date ranges are capped at 366 days.
+
+#### Funnel query
+
+Replace `aggregate=true` with `funnelSteps` to compute a sequential funnel:
+
+```
+GET <endpoint>?appId=...&from=...&to=...&funnelSteps=[{"type":"page_view","path":"/"},{"type":"purchase"}]
+```
+
+Add `visitorId` to scope the result to a single visitor (used by the User Journey stepper):
+
+```
+GET <endpoint>?...&funnelSteps=[...]&visitorId=v-abc123
+```
+
+Response shape:
+
+```ts
+{
+  funnel: Array<{
+    label:          string          // display label
+    type:           string          // event type
+    path?:          string          // path filter, if specified in the step definition
+    count:          number          // visitors who reached this step
+    conversionRate: number | null   // count / previous step count; null for the first step
+  }>
+}
+```
+
+Steps are matched in chronological order per visitor. A visitor must trigger step _n_ before step _n+1_ counts. At least 2 steps are required.
 
 ## Event Payload
 
@@ -186,7 +260,8 @@ import type { AnalyticsConfig, EventPayload, TrackEvent } from '@quiet-ly/analyt
 
 import { AnalyticsProvider, useAnalytics, usePageTracking } from '@quiet-ly/analytics/react'
 
-import { AnalyticsDashboard } from '@quiet-ly/analytics/dashboard'
+import { AnalyticsDashboard, FunnelChart } from '@quiet-ly/analytics/dashboard'
+import type { FunnelStep, FunnelChartProps } from '@quiet-ly/analytics/dashboard'
 ```
 
 ## Development

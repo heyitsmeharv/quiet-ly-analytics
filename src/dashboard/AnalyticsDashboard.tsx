@@ -7,6 +7,8 @@ import { TopLocations } from './TopLocations'
 import { TopDevices } from './TopDevices'
 import { TopBrowsers } from './TopBrowsers'
 import { WorldMap } from './WorldMap'
+import { FunnelChart } from './FunnelChart'
+import type { FunnelStep } from './FunnelChart'
 
 const ANIMATIONS = `
   @keyframes qly-shimmer {
@@ -52,6 +54,8 @@ export interface AnalyticsDashboardProps {
   appId: string
   /** Initial date range in days - maps to the nearest preset. Default 30. */
   dateRange?: number
+  /** When provided, a User Journey section appears whenever a visitor is selected */
+  funnelSteps?: FunnelStep[]
 }
 
 type Preset = '1d' | '7d' | '30d' | '1y' | 'custom'
@@ -199,7 +203,7 @@ function getLocationLabel(
 
 // ─── component ───────────────────────────────────────────────────────────────
 
-export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: AnalyticsDashboardProps) {
+export function AnalyticsDashboard({ endpoint, appId, dateRange = 30, funnelSteps }: AnalyticsDashboardProps) {
   const isMobile = useWindowWidth() < 640
   const initialPreset = dateRangeToPreset(dateRange)
   const initialRange  = presetToRange(initialPreset)
@@ -553,9 +557,15 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                               <code style={styles.eventType}>{e.type}</code>
                               {paramEntries.length > 0 && (
-                                <span style={styles.paramsToggle} aria-hidden="true">
-                                  {isExpanded ? '▾' : '▸'}
-                                </span>
+                                <span
+                                  style={{
+                                    ...styles.paramsToggle,
+                                    display: 'inline-block',
+                                    transform: isExpanded ? 'none' : 'rotate(-90deg)',
+                                    transition: 'transform 0.15s ease',
+                                  }}
+                                  aria-hidden="true"
+                                >▼</span>
                               )}
                             </div>
                           </td>
@@ -597,6 +607,21 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: Analytic
             </table>
           </div>
         </div>
+
+        {/* User Journey — visible only when a visitor is selected and funnelSteps provided */}
+        {visitorFilter && funnelSteps && funnelSteps.length >= 2 && (
+          <div style={{ ...styles.section, padding: sectionPad }}>
+            <h3 style={styles.sectionTitle}>User Journey</h3>
+            <FunnelChart
+              endpoint={endpoint}
+              appId={appId}
+              steps={funnelSteps}
+              from={from}
+              to={to}
+              visitorId={visitorFilter}
+            />
+          </div>
+        )}
 
       </div>{/* /body */}
     </div>
