@@ -92,32 +92,31 @@ The dashboard includes:
 - world heatmap by country (falls back gracefully when country data is absent)
 - recent events table with click-to-filter by visitor
 - preset and custom date ranges (Today, 1 Week, 1 Month, 1 Year, Custom)
-- user journey stepper — shown when a visitor is selected and `funnelSteps` is provided
+- user journey timeline — shown automatically when a visitor is selected, rendering their actual event sequence in chronological order
 
 The dashboard uses the `?aggregate=true` endpoint, which returns a pre-computed `{ summary }` object rather than raw events. This keeps response sizes small regardless of date range. Date ranges are validated client-side before any request is sent.
 
-### Funnel analysis
+### User Journey
 
-Pass an ordered list of steps to enable the User Journey panel. It appears automatically when a visitor is selected from the Recent Events table:
+When a visitor is selected from the Recent Events table, a User Journey section appears automatically below it. It fetches that visitor's events for the active date range and renders them as a horizontal timeline — no configuration required.
+
+The `VisitorJourney` component is also available standalone:
 
 ```tsx
-<AnalyticsDashboard
+import { VisitorJourney } from '@quiet-ly/analytics/dashboard'
+
+<VisitorJourney
   endpoint="https://xxxx.lambda-url.eu-west-2.on.aws"
   appId="my-portfolio"
-  dateRange={30}
-  funnelSteps={[
-    { label: 'Home',            type: 'page_view', path: '/home'     },
-    { label: 'About',           type: 'page_view', path: '/about'    },
-    { label: 'CV Downloaded',   type: 'cv_downloaded'                 },
-    { label: 'Projects',        type: 'page_view', path: '/projects' },
-    { label: 'Project Clicked', type: 'project_clicked'              },
-  ]}
+  visitorId="v-abc123"
+  from="2026-05-01"
+  to="2026-05-28"
 />
 ```
 
-Each step has a `type` (the event type string) and an optional `path` filter. Steps are matched in order per visitor — a visitor must reach step _n_ before step _n+1_ counts.
+### Funnel analysis
 
-The `FunnelChart` component is also available standalone for embedding funnel views outside the dashboard:
+The `FunnelChart` component is available for embedding aggregate conversion funnels outside the dashboard:
 
 ```tsx
 import { FunnelChart } from '@quiet-ly/analytics/dashboard'
@@ -161,6 +160,7 @@ The package is designed for a single Lambda Function URL root.
 
 - Ingest: `POST <endpoint>`
 - Query (aggregate): `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&aggregate=true`
+- Query (visitor journey): `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&visitorId=<id>`
 - Query (funnel): `GET <endpoint>?appId=...&from=YYYY-MM-DD&to=YYYY-MM-DD&funnelSteps=[...]`
 - Browser usage assumptions: no cookies, no credentials, and no custom headers beyond `Content-Type`
 
@@ -185,6 +185,24 @@ The dashboard always adds `aggregate=true`, which returns a pre-aggregated summa
 ```
 
 Each `top*` array contains up to 10 entries sorted by count descending. `dailyCounts` only includes dates with at least one page view — the dashboard zero-fills gaps for the chart. Date ranges are capped at 366 days.
+
+#### Visitor journey query
+
+Add `visitorId` (without `funnelSteps` or `aggregate`) to receive that visitor's events in chronological order:
+
+```
+GET <endpoint>?appId=...&from=...&to=...&visitorId=v-abc123
+```
+
+Response shape:
+
+```ts
+{
+  events: Array<Event>   // all events for this visitor, sorted oldest → newest
+}
+```
+
+This is what `VisitorJourney` and `AnalyticsDashboard`'s User Journey section use internally.
 
 #### Funnel query
 
@@ -260,8 +278,8 @@ import type { AnalyticsConfig, EventPayload, TrackEvent } from '@quiet-ly/analyt
 
 import { AnalyticsProvider, useAnalytics, usePageTracking } from '@quiet-ly/analytics/react'
 
-import { AnalyticsDashboard, FunnelChart } from '@quiet-ly/analytics/dashboard'
-import type { FunnelStep, FunnelChartProps } from '@quiet-ly/analytics/dashboard'
+import { AnalyticsDashboard, FunnelChart, VisitorJourney } from '@quiet-ly/analytics/dashboard'
+import type { FunnelStep, FunnelChartProps, VisitorJourneyProps } from '@quiet-ly/analytics/dashboard'
 ```
 
 ## Development

@@ -244,10 +244,25 @@ window.fetch = async (input, init) => {
     })
 
     const funnelStepsParam = params.get('funnelSteps')
+    const visitorIdParam   = params.get('visitorId')
+
     if (funnelStepsParam) {
       const steps = JSON.parse(funnelStepsParam)
-      const funnel = computeFunnel(mockEvents, from, to, steps, params.get('visitorId'))
+      const funnel = computeFunnel(mockEvents, from, to, steps, visitorIdParam)
       return new Response(JSON.stringify({ funnel }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (visitorIdParam) {
+      const start = new Date(from + 'T00:00:00').getTime()
+      const end   = new Date(to   + 'T23:59:59').getTime()
+      const events = mockEvents
+        .filter((e) => e.visitorId === visitorIdParam)
+        .filter((e) => { const t = new Date(e.timestamp).getTime(); return t >= start && t <= end })
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      return new Response(JSON.stringify({ events }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -265,23 +280,6 @@ window.fetch = async (input, init) => {
 
 // ─── app ─────────────────────────────────────────────────────────────────────
 
-const DEMO_FUNNEL = [
-  { label: 'Home',              type: 'page_view',        path: '/home'                },
-  { label: 'About',             type: 'page_view',        path: '/about'               },
-  { label: 'CV Downloaded',     type: 'cv_downloaded'                                  },
-  { label: 'Projects',          type: 'page_view',        path: '/projects'            },
-  { label: 'Project Clicked',   type: 'project_clicked'                                },
-  { label: 'AWS Blog',          type: 'page_view',        path: '/blog/aws-s3'         },
-  { label: 'React Blog',        type: 'page_view',        path: '/blog/react-hooks'    },
-  { label: 'Terraform Blog',    type: 'page_view',        path: '/blog/terraform-intro'},
-  { label: 'Theme Changed',     type: 'theme_changed'                                  },
-  { label: 'Contact',           type: 'page_view',        path: '/contact'             },
-  { label: 'Form Submitted',    type: 'contact_submitted'                              },
-  { label: 'Newsletter',        type: 'newsletter_signup'                              },
-  { label: 'Referral Share',    type: 'referral_share'                                 },
-  { label: 'Hired!',            type: 'job_offer_sent'                                 },
-]
-
 function App() {
   return (
     <div style={{ padding: '16px 0' }}>
@@ -289,7 +287,6 @@ function App() {
         endpoint="https://mock-endpoint.lambda-url.eu-west-2.on.aws"
         appId="my-portfolio"
         dateRange={30}
-        funnelSteps={DEMO_FUNNEL}
       />
     </div>
   )

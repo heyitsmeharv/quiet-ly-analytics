@@ -1,6 +1,6 @@
 {
   "name": "@quiet-ly/analytics",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Lightweight, privacy-first analytics SDK. Self-hosted on AWS.",
   "license": "MIT",
   "author": "Adam Harvey",

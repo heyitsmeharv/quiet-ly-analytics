@@ -7,8 +7,7 @@ import { TopLocations } from './TopLocations'
 import { TopDevices } from './TopDevices'
 import { TopBrowsers } from './TopBrowsers'
 import { WorldMap } from './WorldMap'
-import { FunnelChart } from './FunnelChart'
-import type { FunnelStep } from './FunnelChart'
+import { VisitorJourney } from './VisitorJourney'
 
 const ANIMATIONS = `
   @keyframes qly-shimmer {
@@ -54,8 +53,6 @@ export interface AnalyticsDashboardProps {
   appId: string
   /** Initial date range in days - maps to the nearest preset. Default 30. */
   dateRange?: number
-  /** When provided, a User Journey section appears whenever a visitor is selected */
-  funnelSteps?: FunnelStep[]
 }
 
 type Preset = '1d' | '7d' | '30d' | '1y' | 'custom'
@@ -203,7 +200,7 @@ function getLocationLabel(
 
 // ─── component ───────────────────────────────────────────────────────────────
 
-export function AnalyticsDashboard({ endpoint, appId, dateRange = 30, funnelSteps }: AnalyticsDashboardProps) {
+export function AnalyticsDashboard({ endpoint, appId, dateRange = 30 }: AnalyticsDashboardProps) {
   const isMobile = useWindowWidth() < 640
   const initialPreset = dateRangeToPreset(dateRange)
   const initialRange  = presetToRange(initialPreset)
@@ -608,17 +605,16 @@ export function AnalyticsDashboard({ endpoint, appId, dateRange = 30, funnelStep
           </div>
         </div>
 
-        {/* User Journey — visible only when a visitor is selected and funnelSteps provided */}
-        {visitorFilter && funnelSteps && funnelSteps.length >= 2 && (
+        {/* User Journey — visible whenever a visitor is selected */}
+        {visitorFilter && (
           <div style={{ ...styles.section, padding: sectionPad }}>
             <h3 style={styles.sectionTitle}>User Journey</h3>
-            <FunnelChart
+            <VisitorJourney
               endpoint={endpoint}
               appId={appId}
-              steps={funnelSteps}
+              visitorId={visitorFilter}
               from={from}
               to={to}
-              visitorId={visitorFilter}
             />
           </div>
         )}
